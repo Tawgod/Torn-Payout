@@ -1,313 +1,429 @@
 // ==========================================
-// 1. MASTER DASHBOARD BUILDER (With War End & Wide Column I)
+// 3. OFFICIAL TORN REPORT FETCHER (MULTI-CHAIN)
 // ==========================================
-function buildDashboard() {
+function fetchOfficialReports() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const rdSheet = ss.getSheetByName(SETTINGS.rdSheet);
-  let dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
+  const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
+  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
   
-  if (!rdSheet) {
-    ss.toast("No RD sheet found to build from. Pull data first!", "Error", 5);
+  if (!dashSheet || !configSheet) return;
+  
+  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue().toString().trim();
+  const rawConfigFactionId = configSheet.getRange(SETTINGS.factionIdCell || "B7").getValue().toString().trim();
+
+  if (!apiKey) {
+    SpreadsheetApp.getUi().alert("Missing API Key in Config Sheet.");
+    return;
+  }
+  
+  let allData = dashSheet.getDataRange().getValues();
+  const findVal = (label) => {
+    for (let r = 0; r < allData.length; r++) {
+      for (let c = 0; c < allData[r].length; c++) {
+        if (allData[r][c] === label && c + 1 < allData[r].length) return allData[r][c+1];
+      }
+    }
+    return "";
+  };
+
+  const warId = findVal("War Report ID").toString().trim();
+  const rawChainId = findVal("Chain Report ID").toString().trim();
+  
+  if (!warId && !rawChainId) {
+    SpreadsheetApp.getUi().alert("Please enter a War ID or a Chain ID in the Official Reports box.");
+    return;
+  }
+  
+  // --- CACHE VALUATION ---
+  let itemValueMap = {};
+  try {
+    let itemsUrl = `https://api.torn.com/torn/?selections=items&key=${apiKey}`;
+    let itemsRes = UrlFetchApp.fetch(itemsUrl, { muteHttpExceptions: true });
+    let itemsJson = JSON.parse(itemsRes.getContentText());
+    if (itemsJson.items) {
+      for (let id in itemsJson.items) {
+        itemValueMap[itemsJson.items[id].name] = itemsJson.items[id].market_value || 0;
+      }
+    }
+  } catch(e) {}
+  
+  // --- OFFICIAL WAR REPORT ---
+  if (warId) {
+    let warUrl = `https://api.torn.com/torn/${warId}?selections=rankedwarreport&key=${apiKey}`;
+    let res = UrlFetchApp.fetch(warUrl, { muteHttpExceptions: true });
+    let json = JSON.parse(res.getContentText());
+    
+    let warSheetName = "Official War Report";
+    let warSheet = ss.getSheetByName(warSheetName);
+    if (!warSheet) { warSheet = ss.insertSheet(warSheetName); }
+    else { warSheet.clear(); warSheet.clearFormats(); }
+    
+    if (json.rankedwarreport) {
+      let rw = json.rankedwarreport;
+      let startUnix = rw.war ? rw.war.start : rw.start;
+      let endUnix = rw.war ? rw.war.end : rw.end;
+      let start = new Date(startUnix * 1000).toUTCString();
+      let end = endUnix ? new Date(endUnix * 1000).toUTCString() : "Ongoing";
+      
+      let output = [];
+      output.push(["⚔️ OFFICIAL WAR REPORT", ""]);
+      output.push(["War ID", warId]);
+      output.push(["Start (UTC)", start]);
+      output.push(["End (UTC)", end]);
+      output.push(["(Note: API does not provide Hosp/Mug splits for Wars)", ""]);
+      output.push(["", ""]);
+      
+      output.push(["🏆 FACTION REWARDS", ""]);
+      
+      let facKeys = Object.keys(rw.factions || {});
+      let myFacIdStr = rawConfigFactionId;
+      
+      if (facKeys.length > 0 && (!myFacIdStr || !facKeys.includes(myFacIdStr))) {
+        let dashEnemyId = findVal("Enemy Faction ID").toString().trim(); 
+        for (let f of facKeys) {
+          if (f !== dashEnemyId) { myFacIdStr = f; break; }
+        }
+      }
+
+      let outcomeStr = "Ongoing";
+      let warEnded = (rw.war && rw.war.end && rw.war.end > 0);
+      if (warEnded) {
+        if (facKeys.length === 2 && myFacIdStr) {
+          let myScore = rw.factions[myFacIdStr].score;
+          let enemyId = facKeys[0] === myFacIdStr ? facKeys[1] : facKeys[0];
+          let enemyScore = rw.factions[enemyId].score;
+          if (myScore > enemyScore) outcomeStr = "Win";
+          else if (myScore < enemyScore) outcomeStr = "Loss";
+          else outcomeStr = "Draw";
+        }
+      }
+      output.push(["Outcome", outcomeStr]);
+
+      let exactLogString = "";
+      try {
+        let newsUrl = `https://api.torn.com/faction/?selections=news&key=${apiKey}`;
+        let newsRes = UrlFetchApp.fetch(newsUrl, { muteHttpExceptions: true });
+        let newsJson = JSON.parse(newsRes.getContentText());
+        if (newsJson.news) {
+          for (let n in newsJson.news) {
+            let text = newsJson.news[n].news || "";
+            if (text.includes("received") && text.includes("respect") && (text.includes("ranked") || text.includes("retained"))) {
+              exactLogString = text.replace(/(<([^>]+)>)/ig, ''); 
+              break; 
+            }
+          }
+        }
+      } catch(e) {}
+      
+      output.push(["Official Faction Log", exactLogString || "Log not found"]);
+      
+      let cacheList = [];
+      let totalCacheValue = 0;
+      if (rw.factions && rw.factions[myFacIdStr] && rw.factions[myFacIdStr].rewards) {
+        let r = rw.factions[myFacIdStr].rewards;
+        output.push(["Points Won", r.points || 0]);
+        output.push(["Respect Won", r.respect || 0]);
+        
+        if (r.items) {
+          for (let i in r.items) { 
+            let qty = r.items[i].quantity;
+            let name = r.items[i].name;
+            cacheList.push(`${qty}x ${name}`); 
+            if (itemValueMap[name]) {
+              totalCacheValue += (qty * itemValueMap[name]);
+            }
+          }
+        }
+      }
+      output.push(["Caches / Items Won", cacheList.length > 0 ? cacheList.join("\n") : "None"]);
+      output.push(["Estimated Cache Value", totalCacheValue > 0 ? totalCacheValue : ""]);
+      output.push(["", ""]);
+      
+      let memberRows = [];
+      memberRows.push(["Faction ID", "Faction Name", "Member ID", "Member Name", "Total Attacks", "War Score"]);
+      if (rw.factions) {
+        for (let f in rw.factions) {
+          let fac = rw.factions[f];
+          output.push([`Faction: ${fac.name} [${f}]`, `Total Score: ${fac.score}`]);
+          if (fac.members) {
+            for (let m in fac.members) {
+              memberRows.push([f, fac.name, m, fac.members[m].name, fac.members[m].attacks, fac.members[m].score]);
+            }
+          }
+        }
+      }
+      
+      output.push(["", ""]);
+      output = output.concat(memberRows);
+      
+      const maxColsWar = 6;
+      for (let r = 0; r < output.length; r++) { while (output[r].length < maxColsWar) { output[r].push(""); } }
+      
+      warSheet.getRange(1, 1, output.length, maxColsWar).setValues(output);
+      warSheet.getRange(1, 1, 1, 2).setBackground("#cc0000").setFontColor("white").setFontWeight("bold");
+      warSheet.getRange(7, 1, 1, 2).setBackground("#f1c232").setFontWeight("bold"); 
+      warSheet.getRange(output.length - memberRows.length + 1, 1, 1, maxColsWar).setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
+      warSheet.autoResizeColumns(1, maxColsWar);
+    } else {
+      warSheet.getRange("A1").setValue("Error: Could not load War Report. Check ID or API Key.");
+    }
+  }
+  
+  // --- OFFICIAL CHAIN REPORT (MULTI-CHAIN) ---
+  let chainIds = rawChainId.split(',').map(id => id.trim()).filter(id => id !== "");
+  
+  if (chainIds.length > 0) {
+    let chainSheetName = "Official Chain Report";
+    let chainSheet = ss.getSheetByName(chainSheetName);
+    if (!chainSheet) { chainSheet = ss.insertSheet(chainSheetName); }
+    else { chainSheet.clear(); chainSheet.clearFormats(); }
+
+    if (chainIds.length > 1) {
+      ss.toast(`Fetching ${chainIds.length} chains. This may take a moment...`, "Processing", 5);
+    }
+
+    let combinedStats = {};
+    let totalChainHits = 0;
+    let totalChainRespect = 0;
+    let firstStart = null;
+    let lastEnd = null;
+    let apiErrorFlag = false;
+
+    for (let i = 0; i < chainIds.length; i++) {
+      let chainId = chainIds[i];
+      let chainUrl = `https://api.torn.com/torn/${chainId}?selections=chainreport&key=${apiKey}`;
+      
+      try {
+        let res = UrlFetchApp.fetch(chainUrl, { muteHttpExceptions: true });
+        let json = JSON.parse(res.getContentText());
+        
+        if (json.chainreport) {
+          let cr = json.chainreport;
+          
+          if (firstStart === null || cr.start < firstStart) firstStart = cr.start;
+          if (lastEnd === null || cr.end > lastEnd) lastEnd = cr.end;
+          
+          totalChainHits += (cr.hits || 0);
+          totalChainRespect += (cr.respect || 0);
+
+          if (cr.members) {
+            for (let m in cr.members) {
+              if (!combinedStats[m]) {
+                combinedStats[m] = { attacks: 0, respect: 0, leave: 0, mug: 0, hosp: 0, assist: 0, overseas: 0, draw: 0, escape: 0, loss: 0 };
+              }
+              let mem = cr.members[m];
+              combinedStats[m].attacks += mem.attacks || 0;
+              combinedStats[m].respect += mem.respect || 0;
+              combinedStats[m].leave += mem.leave || 0;
+              combinedStats[m].mug += mem.mug || 0;
+              combinedStats[m].hosp += mem.hosp || 0;
+              combinedStats[m].assist += mem.assist || 0;
+              combinedStats[m].overseas += mem.overseas || 0;
+              combinedStats[m].draw += mem.draw || 0;
+              combinedStats[m].escape += mem.escape || 0;
+              combinedStats[m].loss += mem.loss || 0;
+            }
+          } else {
+            apiErrorFlag = true;
+          }
+        }
+      } catch (e) {
+        ss.toast(`Error fetching chain ${chainId}`, "API Error", 5);
+      }
+
+      // Pause to respect Torn API limits if pulling multiple chains
+      if (i < chainIds.length - 1) {
+        Utilities.sleep(350); 
+      }
+    }
+
+    // Build the output for the Chain tab
+    let output = [];
+    output.push(["⛓️ OFFICIAL CHAIN REPORT", ""]);
+    output.push(["Chain ID(s)", chainIds.join(", ")]);
+    output.push(["Earliest Start (UTC)", firstStart ? new Date(firstStart * 1000).toUTCString() : "N/A"]);
+    output.push(["Latest End (UTC)", lastEnd ? new Date(lastEnd * 1000).toUTCString() : "N/A"]);
+    output.push(["Total Hits", totalChainHits]);
+    output.push(["Total Respect", totalChainRespect]);
+    output.push(["", ""]);
+    
+    let memberRows = [];
+    memberRows.push(["Member ID", "Total Attacks", "Respect", "Leave", "Mug", "Hosp", "Assist", "Overseas", "Draw", "Escape", "Loss"]);
+    
+    if (apiErrorFlag && Object.keys(combinedStats).length === 0) {
+      memberRows.push(["API ERROR:", "Torn hid member data. You MUST use a 'Limited Access' API key.", "", "", "", "", "", "", "", "", ""]);
+    } else {
+      for (let m in combinedStats) {
+        let mem = combinedStats[m];
+        memberRows.push([
+          m, mem.attacks, mem.respect, mem.leave, mem.mug, mem.hosp, 
+          mem.assist, mem.overseas, mem.draw, mem.escape, mem.loss
+        ]);
+      }
+    }
+    
+    output = output.concat(memberRows);
+    
+    const maxColsChain = 11;
+    for (let r = 0; r < output.length; r++) { while (output[r].length < maxColsChain) { output[r].push(""); } }
+    
+    chainSheet.getRange(1, 1, output.length, maxColsChain).setValues(output);
+    chainSheet.getRange(1, 1, 1, 2).setBackground("#3c78d8").setFontColor("white").setFontWeight("bold");
+    chainSheet.getRange(8, 1, 1, maxColsChain).setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
+    chainSheet.autoResizeColumns(1, maxColsChain);
+  }
+  
+  if (typeof refreshDashboard === "function") { refreshDashboard(); }
+  SpreadsheetApp.getUi().alert("✅ Official Reports Fetched & Combined!");
+}
+
+// ==========================================
+// DASHBOARD ENGINE (Smart Auto-Fill)
+// ==========================================
+function refreshDashboard() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
+  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
+
+  if (!dashSheet || !configSheet) {
+    SpreadsheetApp.getUi().alert("⚠️ Missing Dashboard or Config sheet.");
     return;
   }
 
-  // --- Extract Existing Data (Safe Refresh) ---
-  let targetFactionId = "", officialStartTime = "No Data", officialEndTime = "No Data", activeWarId = "No Data";
-  let filterTotal = "", filterWar = "", filterChain = "";
-  let custStartDate = "", custStartTime = "00:00", custEndDate = "", custEndTime = "00:00";
-  let warResult = "Ongoing", termedEarly = "No"; 
-  let cachesWon = "", cacheVal = "", actualCacheVal = ""; 
-  let fRev = 0, fTemp = 0, fRevive = 0, fXanax = 0, fOther = 0; 
-  let fCutPct = 0.10, fCutMax = ""; 
-  
-  if (dashSheet) {
-    let tempId = dashSheet.getRange("C3").getValue().toString().trim();
-    if (tempId !== "None Set" && tempId !== "") targetFactionId = tempId;
-    
-    officialStartTime = dashSheet.getRange("C4").getValue();
-    officialEndTime = dashSheet.getRange("C5").getValue();
-    activeWarId = dashSheet.getRange("C6").getValue();
-    
-    try {
-      let tempRes = dashSheet.getRange("C10").getValue(); // Shifted
-      if (tempRes !== "") warResult = tempRes;
-      
-      cachesWon = dashSheet.getRange("C11").getValue();
-      cacheVal = dashSheet.getRange("C12").getValue();
-      let tempActual = dashSheet.getRange("C13").getValue();
-      if (tempActual !== "") actualCacheVal = tempActual;
-      
-      let tempTerm = dashSheet.getRange("C15").getValue(); // Shifted
-      if (tempTerm !== "") termedEarly = tempTerm;
-    } catch(e) {}
+  // Grab API Key and your Faction ID from Config
+  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell || "B3").getValue().toString().trim();
+  const myFactionId = configSheet.getRange(SETTINGS.factionIdCell || "B7").getValue().toString().trim();
 
-    filterTotal = dashSheet.getRange("I3").getValue();
-    filterWar = dashSheet.getRange("I4").getValue();
-    filterChain = dashSheet.getRange("I5").getValue();
-    
-    try {
-      let tsd = dashSheet.getRange("I8").getValue();
-      if (tsd !== "") custStartDate = tsd;
-      let tst = dashSheet.getRange("I9").getValue();
-      if (tst !== "") custStartTime = tst;
-      let ted = dashSheet.getRange("I10").getValue();
-      if (ted !== "") custEndDate = ted;
-      let tet = dashSheet.getRange("I11").getValue();
-      if (tet !== "") custEndTime = tet;
-    } catch(e) {}
-
-    try {
-      fRev = parseFloat(dashSheet.getRange("L3").getValue()) || 0;
-      fTemp = parseFloat(dashSheet.getRange("L4").getValue()) || 0;
-      fRevive = parseFloat(dashSheet.getRange("L5").getValue()) || 0;
-      fXanax = parseFloat(dashSheet.getRange("L6").getValue()) || 0;
-      fOther = parseFloat(dashSheet.getRange("L8").getValue()) || 0;
-      let tempCutPct = dashSheet.getRange("L10").getValue();
-      if (tempCutPct !== "") fCutPct = tempCutPct;
-      let tempCutMax = dashSheet.getRange("L11").getValue();
-      if (tempCutMax !== "") fCutMax = tempCutMax;
-    } catch(e) {}
+  if (!apiKey) {
+    ss.toast("API Key missing. Cannot refresh dashboard.", "Error", 5);
+    return;
   }
 
-  // --- Scan RD Tab ---
-  const data = rdSheet.getDataRange().getValues();
-  let warHits = 0, warRespect = 0, totalHits = 0, totalRespect = 0;
-  let lastWarHit = null, firstHit = null, lastHit = null;
+  ss.toast("Pinging Torn API...", "System", 3);
 
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let timestamp = new Date(row[2]); 
-    let defFaction = row[8].toString().trim(); 
-    let respect = parseFloat(row[10]) || 0; 
+  let dashData = dashSheet.getDataRange().getValues();
 
-    totalHits++; totalRespect += respect;
-    if (!firstHit || timestamp < firstHit) firstHit = timestamp;
-    if (!lastHit || timestamp > lastHit) lastHit = timestamp;
-
-    if (defFaction === targetFactionId && targetFactionId !== "") {
-      warHits++; warRespect += respect;
-      if (!lastWarHit || timestamp > lastWarHit) lastWarHit = timestamp;
+  // --- DYNAMIC DASHBOARD SCANNERS ---
+  const findVal = (label) => {
+    let cleanLabel = label.toLowerCase().trim();
+    for (let r = 0; r < dashData.length; r++) {
+      for (let c = 0; c < dashData[r].length; c++) {
+        if (dashData[r][c] && dashData[r][c].toString().toLowerCase().trim() === cleanLabel) {
+          return dashData[r][c + 1] ? dashData[r][c + 1].toString().trim() : "";
+        }
+      }
     }
-  }
+    return "";
+  };
 
-  if (!dashSheet) {
-    dashSheet = ss.insertSheet(SETTINGS.dashboardSheet, 1);
-  } else {
-    dashSheet.clear(); dashSheet.clearFormats(); dashSheet.getDataRange().clearDataValidations();
-  }
-  dashSheet.setHiddenGridlines(true);
+  const setVal = (label, value) => {
+    let cleanLabel = label.toLowerCase().trim();
+    for (let r = 0; r < dashData.length; r++) {
+      for (let c = 0; c < dashData[r].length; c++) {
+        if (dashData[r][c] && dashData[r][c].toString().toLowerCase().trim() === cleanLabel) {
+          dashSheet.getRange(r + 1, c + 2).setValue(value);
+          return;
+        }
+      }
+    }
+  };
 
-  // --- 1. WAR INSIGHTS (Shifted for End Time) ---
-  const warHeaders = [
-    ["⚔️ WAR INSIGHTS", ""],
-    ["Enemy Faction ID", targetFactionId || "None Set"],
-    ["Official War Start", officialStartTime], 
-    ["Official War End", officialEndTime], // NEW ROW
-    ["War ID", activeWarId],  
-    ["Last War Hit", lastWarHit || "No Data"],
-    ["Total War Hits", warHits],
-    ["War Respect Gained", warRespect],
-    ["Outcome (Result)", warResult], 
-    ["Caches Won", cachesWon], 
-    ["Est. Cache Value", cacheVal],
-    ["Actual Cache Value", actualCacheVal], 
-    ["Difference", '=IF(C13="", "", C13 - C12)'],
-    ["Termed?", termedEarly] 
-  ];
-  dashSheet.getRange("B2:C15").setValues(warHeaders);
-  dashSheet.getRange("B2:C2").setBackground("#cc0000").setFontColor("white").setFontWeight("bold").merge();
-  dashSheet.getRange("B3:C15").setBackground("#f4cccc");
-  dashSheet.getRange("B12:C12").setBackground("#ea9999").setFontWeight("bold"); // Cache Val highlight
-  dashSheet.getRange("C13").setBackground("#ffffff").setBorder(true, true, true, true, false, false, "black", SpreadsheetApp.BorderStyle.SOLID);
-  dashSheet.getRange("C10").setBackground("#ffffff").setBorder(true, true, true, true, false, false, "black", SpreadsheetApp.BorderStyle.SOLID); // Outcome
-  dashSheet.getRange("C15").setBackground("#ffffff").setBorder(true, true, true, true, false, false, "black", SpreadsheetApp.BorderStyle.SOLID); // Termed
-
-  const outcomeRule = SpreadsheetApp.newDataValidation().requireValueInList(["Win", "Loss", "Draw", "Ongoing"]).build();
-  dashSheet.getRange("C10").setDataValidation(outcomeRule);
-  const termedRule = SpreadsheetApp.newDataValidation().requireValueInList(["Yes", "No"]).build();
-  dashSheet.getRange("C15").setDataValidation(termedRule);
-
-  // --- 2. CHAIN INSIGHTS ---
-  const chainHeaders = [
-    ["🔗 CHAIN INSIGHTS", ""],
-    ["First Attack Logged", firstHit || "No Data"],
-    ["Latest Attack Logged", lastHit || "No Data"],
-    ["Total Attacks Logged", totalHits],
-    ["Total Respect Generated", totalRespect]
-  ];
-  dashSheet.getRange("E2:F6").setValues(chainHeaders);
-  dashSheet.getRange("E2:F2").setBackground("#3c78d8").setFontColor("white").setFontWeight("bold").merge();
-  dashSheet.getRange("E3:F6").setBackground("#c9daf8");
-
-  // --- 3. PAYOUT FILTERS ---
-  const filterHeaders = [
-    ["⚙️ PAYOUT FILTERS", ""],
-    ["Total Hits (Max Limit)", filterTotal],
-    ["Max War Hits", filterWar],
-    ["Max Chain Hits", filterChain]     
-  ];
-  dashSheet.getRange("H2:I5").setValues(filterHeaders);
-  dashSheet.getRange("H2:I2").setBackground("#e69138").setFontColor("white").setFontWeight("bold").merge();
-  dashSheet.getRange("H3:I5").setBackground("#fce5cd");
-  dashSheet.getRange("I3:I5").setBackground("#ffffff").setBorder(true, true, true, true, false, false, "black", SpreadsheetApp.BorderStyle.SOLID);
-
-  // --- 4. CUSTOM TIME WINDOW ---
-  const timeHeaders = [
-    ["⏳ CUSTOM TIME WINDOW", ""],
-    ["Start Date", custStartDate],
-    ["Start Time", custStartTime],
-    ["End Date", custEndDate],
-    ["End Time", custEndTime]
-  ];
-  dashSheet.getRange("H7:I11").setValues(timeHeaders);
-  dashSheet.getRange("H7:I7").setBackground("#b45f06").setFontColor("white").setFontWeight("bold").merge();
-  dashSheet.getRange("H8:I11").setBackground("#f9cb9c");
-  dashSheet.getRange("I8:I11").setBackground("#ffffff").setBorder(true, true, true, true, false, false, "black", SpreadsheetApp.BorderStyle.SOLID);
-
-  // CHANGE: We remove the strict dropdown and just ensure it's formatted as time
-  dashSheet.getRange("I9").setDataValidation(null); // Clear old validation
-  dashSheet.getRange("I11").setDataValidation(null); // Clear old validation
-  
-  // Set formatting to show HH:mm:ss
-  dashSheet.getRange("I9").setNumberFormat("HH:mm:ss");
-  dashSheet.getRange("I11").setNumberFormat("HH:mm:ss");
-
-  // --- 5. FINANCIALS ---
-  const bountyFormula = `=IFERROR(SUMIFS('${SETTINGS.bountySheet}'!E:E, '${SETTINGS.bountySheet}'!F:F, "Approved"), 0)`;
-  const finHeaders = [
-    ["💰 WAR FINANCIALS", ""],
-    ["Total Revenue", fRev],
-    ["- Temp Cost", fTemp],
-    ["- Revives", fRevive],
-    ["- Xanax", fXanax],
-    ["- Approved Bounties", bountyFormula], 
-    ["- Other Cost", fOther],
-    ["NET PROFIT", "=IFERROR(L3 - SUM(L4:L8), 0)"], 
-    ["Faction Cut %", fCutPct],
-    ["Max Faction Cut ($)", fCutMax],
-    ["Actual Faction Deduction", "=IF(L9>0, MIN(L9*L10, IF(L11=\"\", 999999999999, L11)), 0)"], 
-    ["PAYOUT TOTAL", "=IFERROR(L9 - L12, 0)"] 
-  ];
-  dashSheet.getRange("K2:L13").setValues(finHeaders);
-  dashSheet.getRange("K2:L2").setBackground("#274e13").setFontColor("white").setFontWeight("bold").merge();
-  dashSheet.getRange("K3:L13").setBackground("#d9ead3");
-  dashSheet.getRange("L3:L8").setBackground("#ffffff").setBorder(true, true, true, true, false, false, "black", SpreadsheetApp.BorderStyle.SOLID);
-  dashSheet.getRange("L10:L11").setBackground("#ffffff").setBorder(true, true, true, true, false, false, "black", SpreadsheetApp.BorderStyle.SOLID);
-  dashSheet.getRange("K9:L9").setFontWeight("bold").setBackground("#b6d7a8");
-  dashSheet.getRange("K12:L13").setFontWeight("bold").setBackground("#b6d7a8");
-
-  // --- 6. LEADERBOARDS ---
-  const pSheet = SETTINGS.payoutSheet;
-  const fWarHits = `=IFERROR(QUERY('${pSheet}'!B3:N, "SELECT B, E WHERE E > 0 ORDER BY E DESC LIMIT 3", 0), {"No Data", ""})`;
-  const fRespect = `=IFERROR(QUERY('${pSheet}'!B3:N, "SELECT B, L WHERE L > 0 ORDER BY L DESC LIMIT 3", 0), {"No Data", ""})`;
-  const fChainHits = `=IFERROR(QUERY('${pSheet}'!B3:N, "SELECT B, I WHERE I > 0 ORDER BY I DESC LIMIT 3", 0), {"No Data", ""})`;
-  const fChainSaves = `=IFERROR(QUERY('${pSheet}'!B3:N, "SELECT B, J WHERE J > 0 ORDER BY J DESC LIMIT 3", 0), {"No Data", ""})`;
-  const fContrib = `=IFERROR(QUERY('${pSheet}'!B3:T, "SELECT B, C WHERE C > 0 ORDER BY C DESC LIMIT 3", 0), {"No Data", ""})`;
-
-  dashSheet.getRange("B17:C17").merge().setValue("🏆 TOP WAR HITS").setBackground("#f1c232").setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("B18").setFormula(fWarHits);
-  dashSheet.getRange("B22:C22").merge().setValue("⭐ TOP RESPECT").setBackground("#f1c232").setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("B23").setFormula(fRespect);
-  dashSheet.getRange("E17:F17").merge().setValue("🔗 TOP CHAIN HITS").setBackground("#f1c232").setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("E18").setFormula(fChainHits);
-  dashSheet.getRange("E22:F22").merge().setValue("🚑 TOP CHAIN SAVES").setBackground("#f1c232").setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("E23").setFormula(fChainSaves);
-  dashSheet.getRange("K17:L17").merge().setValue("🔥 TOP CONTRIBUTION").setBackground("#f1c232").setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("K18").setFormula(fContrib);
-  dashSheet.getRange("B18:C20").setBackground("#fff2cc"); dashSheet.getRange("B23:C25").setBackground("#fff2cc"); dashSheet.getRange("E18:F20").setBackground("#fff2cc"); dashSheet.getRange("E23:F25").setBackground("#fff2cc"); dashSheet.getRange("K18:L20").setBackground("#fff2cc");
-
-  // --- Formatting (Strict 24-Hour Torn Time) ---
-  // Official War Start, End, and Last War Hit
-  dashSheet.getRange("C4:C5").setNumberFormat("yyyy-mm-dd HH:mm:ss"); 
-  dashSheet.getRange("C7").setNumberFormat("yyyy-mm-dd HH:mm:ss"); 
-
-  // First/Latest Attack Logged
-  dashSheet.getRange("F3:F4").setNumberFormat("yyyy-mm-dd HH:mm:ss"); 
-
-  // Custom Time Window (Dates and Times)
-  dashSheet.getRange("I8").setNumberFormat("yyyy-mm-dd"); 
-  dashSheet.getRange("I9").setNumberFormat("HH:mm:ss"); 
-  dashSheet.getRange("I10").setNumberFormat("yyyy-mm-dd"); 
-  dashSheet.getRange("I11").setNumberFormat("HH:mm:ss"); 
-
-  // Financials & Numbers
-  dashSheet.getRange("C8:C9").setNumberFormat("#,##0"); 
-  dashSheet.getRange("C12:C14").setNumberFormat('"$ "#,##0'); 
-  dashSheet.getRange("L3:L9").setNumberFormat('"$ "#,##0');
-  dashSheet.getRange("L10").setNumberFormat('0.00%'); 
-  dashSheet.getRange("L11:L13").setNumberFormat('"$ "#,##0');
-
-  // Column Width adjustments
-  dashSheet.autoResizeColumns(2, 13); 
-  dashSheet.setColumnWidth(9, 180); // Width for 24h Date Strings
-  dashSheet.setColumnWidth(12, 180);
-
-  ss.toast("Dashboard Rebuilt with War End Time & Wide Column I!", "System", 3);
-}
-
-// ==========================================
-// 2. UPDATED API FETCHER (Handles End Time)
-// ==========================================
-function fetchActiveWarDetails() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
-  const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
-  if (!configSheet || !dashSheet) return;
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue().toString().trim();
-  if (!apiKey) return;
+  // Check if you manually typed in a War ID
+  let manualWarId = findVal("War Report ID");
 
   try {
-    const url = `https://api.torn.com/faction/?selections=basic&key=${apiKey}`;
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    const json = JSON.parse(response.getContentText());
-    const rankedWars = json.ranked_wars;
-    if (!rankedWars || Object.keys(rankedWars).length === 0) return;
+    if (manualWarId) {
+      // --- SCENARIO A: USER ENTERED A SPECIFIC WAR ID ---
+      let url = `https://api.torn.com/torn/${manualWarId}?selections=rankedwarreport&key=${apiKey}`;
+      let response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      let json = JSON.parse(response.getContentText());
 
-    const warId = Object.keys(rankedWars)[0];
-    const warData = rankedWars[warId];
-    let enemyId = "";
-    for (let id in warData.factions) { if (id !== json.ID.toString()) { enemyId = id; break; } }
+      if (json.error) {
+        SpreadsheetApp.getUi().alert("Torn API Error on War ID: " + json.error.error);
+        return;
+      }
 
-    let startDate = warData.war.start > 0 ? new Date(warData.war.start * 1000) : "TBD";
-    let endDate = warData.war.end > 0 ? new Date(warData.war.end * 1000) : "Ongoing";
+      if (json.rankedwarreport && json.rankedwarreport.factions) {
+        let factions = json.rankedwarreport.factions;
+        let enemyFound = false;
 
-    dashSheet.getRange("C3").setValue(enemyId);        
-    dashSheet.getRange("C4").setValue(startDate);      
-    dashSheet.getRange("C5").setValue(endDate); // NEW       
-    dashSheet.getRange("C6").setValue(warId);          
-    dashSheet.getRange("C10").setValue("Ongoing");      
-    dashSheet.getRange("C15").setValue("No");           
-  } catch(e) {}
-}
+        // Find the faction that ISN'T you
+        for (let id in factions) {
+          if (id !== myFactionId) {
+            setVal("Enemy Faction ID", id);
+            setVal("Enemy Faction Name", factions[id].name);
+            enemyFound = true;
+          } else {
+            setVal("War Score", factions[id].score);
+          }
+        }
 
-function syncDashboard() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
-  if (!dashSheet) return;
-  ss.toast("Syncing live formulas and fetching API...", "System", 3);
-  fetchActiveWarDetailsSafe(dashSheet);
-}
+        // --- NEW: DETERMINE WAR OUTCOME (Hardcoded to C10) ---
+        if (json.rankedwarreport.war && json.rankedwarreport.war.winner !== undefined) {
+          let winnerId = json.rankedwarreport.war.winner.toString();
+          
+          if (winnerId === myFactionId) {
+            dashSheet.getRange("C10").setValue("Win");
+          } else if (winnerId === "0") {
+            dashSheet.getRange("C10").setValue("Draw");
+          } else {
+            dashSheet.getRange("C10").setValue("Loss");
+          }
+        } else {
+          dashSheet.getRange("C10").setValue("Finished"); // Fallback if API acts weird
+        }
 
-function fetchActiveWarDetailsSafe(dashSheet) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue().toString().trim();
-  if (!apiKey) return;
-  try {
-    const url = `https://api.torn.com/faction/?selections=basic&key=${apiKey}`;
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    const json = JSON.parse(response.getContentText());
-    if (json.ranked_wars && Object.keys(json.ranked_wars).length > 0) {
-      const warId = Object.keys(json.ranked_wars)[0];
-      const warData = json.ranked_wars[warId];
-      let enemyId = "";
-      for (let id in warData.factions) { if (id !== json.ID.toString()) { enemyId = id; break; } }
-      let startDate = warData.war.start > 0 ? new Date(warData.war.start * 1000) : "TBD";
-      let endDate = warData.war.end > 0 ? new Date(warData.war.end * 1000) : "Ongoing";
-      dashSheet.getRange("C3").setValue(enemyId);
-      dashSheet.getRange("C4").setValue(startDate);
-      dashSheet.getRange("C5").setValue(endDate); // NEW
-      dashSheet.getRange("C6").setValue(warId);
+        if (enemyFound) {
+          ss.toast("✅ Enemy details & War Outcome auto-filled from War ID!", "Success", 5);
+        } else {
+          SpreadsheetApp.getUi().alert(`⚠️ Could not find an enemy faction in War [${manualWarId}]. Make sure Config B7 is your correct Faction ID.`);
+        }
+      } else {
+        SpreadsheetApp.getUi().alert(`⚠️ War ID [${manualWarId}] is invalid or API did not return war data.`);
+      }
+
+    } else {
+      // --- SCENARIO B: NO WAR ID (LOOK FOR ACTIVE WAR) ---
+      let url = `https://api.torn.com/faction/?selections=basic&key=${apiKey}`;
+      let response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      let json = JSON.parse(response.getContentText());
+
+      if (json.error) {
+         SpreadsheetApp.getUi().alert("Torn API Error: " + json.error.error);
+         return;
+      }
+
+      // Check if you are currently in an active Ranked War
+      if (json.ranked_wars && Object.keys(json.ranked_wars).length > 0) {
+        let activeWarId = Object.keys(json.ranked_wars)[0];
+        let warData = json.ranked_wars[activeWarId];
+
+        setVal("War Report ID", activeWarId);
+        setVal("War ID", activeWarId); 
+        
+        // --- NEW: MARK ACTIVE WARS AS ONGOING (Hardcoded to C10) ---
+        dashSheet.getRange("C10").setValue("Ongoing");
+
+        let factions = warData.factions;
+        for (let id in factions) {
+          if (id !== myFactionId) {
+            setVal("Enemy Faction ID", id);
+            setVal("Enemy Faction Name", factions[id].name);
+          } else {
+            setVal("War Score", factions[id].score);
+          }
+        }
+        ss.toast("✅ Dashboard updated with live active Ranked War!", "Success", 5);
+      } else {
+        ss.toast("No War ID entered and no active Ranked War found.", "System", 3);
+      }
     }
-  } catch(e) {}
+  } catch (e) {
+    ss.toast("Failed to connect to Torn API.", "Error", 5);
+  }
+}
+
+// (Dummy script to catch broken menu links)
+function buildDashboard() {
+  SpreadsheetApp.getUi().alert("Your dashboard layout is already built! Just use 'Refresh Dashboard' to pull the latest API data.");
 }

@@ -1,90 +1,78 @@
+// ==========================================
+// LOG WAR DATA TO HISTORY
+// ==========================================
 function logWarToHistory() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
-  const payoutSheet = ss.getSheetByName(SETTINGS.payoutSheet);
-  let historySheet = ss.getSheetByName(SETTINGS.historySheet);
-
-  if (!dashSheet || !payoutSheet) {
-    ss.toast("Missing Dashboard or Payouts tab.", "Error", 5);
+  
+  if (!dashSheet) {
+    SpreadsheetApp.getUi().alert("Error: Dashboard not found.");
     return;
   }
 
-  // 1. Ensure History sheet exists and has headers
+  // --- Indestructible Scanner ---
+  let allData = dashSheet.getDataRange().getValues();
+  const findVal = (label) => {
+    for (let r = 0; r < allData.length; r++) {
+      for (let c = 0; c < allData[r].length; c++) {
+        if (allData[r][c] === label && c + 1 < allData[r].length) return allData[r][c+1];
+      }
+    }
+    return "";
+  };
+
+  // Grab all essential data in the new order
+  let warId = findVal("War ID") || "Unknown";
+  let enemyName = findVal("Enemy Faction Name") || "Unknown";
+  let enemyId = findVal("Enemy Faction ID") || "";
+  let start = findVal("Official War Start") || "";
+  let end = findVal("Official War End") || "";
+  let outcome = findVal("Outcome (Result)") || "Unknown";
+  let termed = findVal("Termed?") || "No"; // Moved next to outcome
+  let score = findVal("War Score") || 0;
+  let hits = findVal("Total War Hits") || 0;
+  
+  // Financials
+  let revenue = findVal("Total Revenue") || 0;
+  let payoutTotal = findVal("PAYOUT TOTAL") || 0;
+  let factionProfit = findVal("Actual Faction Deduction") || 0; // Added Faction Profit
+  
+  let caches = findVal("Caches / Items Won") || "";
+  
+  if (warId === "No Data" || warId === "") {
+    SpreadsheetApp.getUi().alert("No War ID found on the Dashboard. Fetch official reports first.");
+    return;
+  }
+
+  // Find the exact History Sheet
+  let historySheet = ss.getSheetByName("History");
+  
   if (!historySheet) {
-    historySheet = ss.insertSheet(SETTINGS.historySheet);
-    historySheet.getRange(1, 1, 1, SETTINGS.historyHeaders.length)
-                .setValues([SETTINGS.historyHeaders])
-                .setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
+    historySheet = ss.insertSheet("History");
+    // New Header Layout
+    let headers = [
+      "Log Date", "War ID", "Enemy Name", "Enemy ID", "Outcome", "Termed", 
+      "Score", "Hits", "Start", "End", "Total Revenue", "Payout Total", 
+      "Faction Profit", "Caches Won"
+    ];
+    historySheet.appendRow(headers);
+    historySheet.getRange("A1:N1").setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
     historySheet.setFrozenRows(1);
   }
 
-  ss.toast("Gathering data and translating faction name...", "System", 3);
+  // Append the row mapping perfectly to the headers
+  historySheet.appendRow([
+    new Date(), warId, enemyName, enemyId, outcome, termed, score, hits, 
+    start, end, revenue, payoutTotal, factionProfit, caches
+  ]);
 
-  // 2. Gather Variables from the Dashboard
-  const warId = dashSheet.getRange("C7").getValue().toString().trim() || "Unknown";
-  const targetFactionId = dashSheet.getRange("C3").getValue().toString().trim(); // Here is the missing variable!
+  let lastRow = historySheet.getLastRow();
   
-  // Use the Config settings for Outcome/Termed, fallback to C4/C5 if not set
-  const outcomeCell = SETTINGS.dashOutcomeCell || "C4";
-  const termedCell = SETTINGS.dashTermedCell || "C5";
-  const outcome = dashSheet.getRange(outcomeCell).getValue().toString().trim() || "N/A";
-  const termed = dashSheet.getRange(termedCell).getValue().toString().trim() || "N/A";
+  // Format the 3 currency columns (K, L, and M are columns 11, 12, 13)
+  historySheet.getRange(lastRow, 11, 1, 3).setNumberFormat('"$ "#,##0');
+  
+  // Force text wrapping across the entire data range so caches don't overflow
+  historySheet.getDataRange().setWrap(true);
 
-  const totalRevenue = parseFloat(dashSheet.getRange("L3").getValue()) || 0;
-  const medsCost = parseFloat(dashSheet.getRange("L6").getValue()) || 0;
-  const bountiesCost = parseFloat(dashSheet.getRange("L7").getValue()) || 0;
-  const totalCosts = medsCost + bountiesCost;
-  const netProfit = parseFloat(dashSheet.getRange("L9").getValue()) || 0;
-  const totalPayout = parseFloat(dashSheet.getRange("L13").getValue()) || 0;
-
-  // 3. Gather Weights from Payouts Tab (Starts at Col E / Index 5)
-  let weights = new Array(10).fill(0);
-  try {
-    weights = payoutSheet.getRange(1, 5, 1, 10).getValues()[0];
-  } catch(e) {
-    ss.toast("Could not read weights from Payouts tab.", "Warning", 3);
-  }
-
-  // 4. API TRANSLATOR: Convert ID to Name
-  const apiKey = configSheet ? configSheet.getRange(SETTINGS.apiKeyCell).getValue().toString().trim() : "";
-  let enemyFactionName = targetFactionId;
-
-  if (apiKey && targetFactionId && targetFactionId !== "None Set") {
-    try {
-      const url = `https://api.torn.com/faction/${targetFactionId}?selections=basic&key=${apiKey}`;
-      const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-      const json = JSON.parse(response.getContentText());
-
-      if (json && json.name) {
-        enemyFactionName = `${json.name} [${targetFactionId}]`;
-      }
-    } catch (e) {
-      // Silently fail and fallback to logging the ID if the connection drops
-    }
-  }
-
-  // 5. Build the Array and Log it
-  const today = new Date();
-  const logData = [
-    today, 
-    warId, 
-    enemyFactionName, 
-    outcome, 
-    termed, 
-    totalRevenue, 
-    totalCosts, 
-    netProfit, 
-    totalPayout, 
-    ...weights
-  ];
-
-  historySheet.appendRow(logData);
-
-  // 6. Format the newly appended row
-  const lastRow = historySheet.getLastRow();
-  historySheet.getRange(lastRow, 1).setNumberFormat("m/d/yyyy"); // Format Date
-  historySheet.getRange(lastRow, 6, 1, 4).setNumberFormat('"$ "#,##0'); // Format Revenue through Payout
-
-  ss.toast("War snapshot successfully logged to History!", "Success", 5);
+  SpreadsheetApp.getUi().alert(`✅ Success!\n\nWar against [${enemyName}] has been permanently logged to the History tab.`);
 }

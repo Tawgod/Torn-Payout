@@ -19,12 +19,12 @@ function importWarData() {
   }
 
   // 1. Read Time Filters from Dashboard
-  let startDateVal = dashSheet.getRange("I8").getValue();
-  let endDateVal = dashSheet.getRange("I10").getValue();
+  let startDateVal = dashSheet.getRange("F8").getValue();
+  let endDateVal = dashSheet.getRange("F10").getValue();
   
   // USE GET DISPLAY VALUE: Grabs exactly what is on the screen (e.g., "15:00:00")
-  let startTimeStr = dashSheet.getRange("I9").getDisplayValue();
-  let endTimeStr = dashSheet.getRange("I11").getDisplayValue();
+  let startTimeStr = dashSheet.getRange("F9").getDisplayValue();
+  let endTimeStr = dashSheet.getRange("F11").getDisplayValue();
 
   // --- IRONCLAD TIME FORCER ---
   let sd = new Date(startDateVal);
@@ -168,10 +168,10 @@ function runSniperAudit() {
   if (targetId === "") return;
 
   // 2. Setup Time Boundaries
-  let startDateVal = dashSheet.getRange("I8").getValue();
-  let endDateVal = dashSheet.getRange("I10").getValue();
-  let startTimeStr = dashSheet.getRange("I9").getDisplayValue();
-  let endTimeStr = dashSheet.getRange("I11").getDisplayValue();
+  let startDateVal = dashSheet.getRange("F8").getValue();
+  let endDateVal = dashSheet.getRange("F10").getValue();
+  let startTimeStr = dashSheet.getRange("F9").getDisplayValue();
+  let endTimeStr = dashSheet.getRange("F11").getDisplayValue();
 
   let sd = new Date(startDateVal);
   let stParts = (startTimeStr ? startTimeStr : "00:00:00").split(":");

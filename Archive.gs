@@ -1,120 +1,274 @@
+// ==========================================
+// 1. TEST ARCHIVE 
+// ==========================================
+function testArchiveOnly() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    "🧪 TEST ARCHIVE", 
+    "This will push the report to the external Archive using Payouts!C1 for Total Attacks. Proceed?", 
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response !== ui.Button.YES) return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.toast("Connecting to External Archive...", "System", 3);
+
+  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
+  let rawId = configSheet ? configSheet.getRange("B3").getValue().toString().trim() : "";
+  
+  let archiveId = rawId;
+  if (rawId.includes("/d/")) {
+    let match = rawId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) archiveId = match[1];
+  }
+
+  let externalSS;
+  try {
+    externalSS = SpreadsheetApp.openById(archiveId);
+  } catch (e) {
+    ui.alert("⚠️ Access Error! Check permissions.");
+    return;
+  }
+
+  let dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
+  let payoutSheet = ss.getSheetByName(SETTINGS.payoutSheet);
+  
+  if (!payoutSheet) {
+    ui.alert("Error: Payouts sheet not found.");
+    return;
+  }
+
+  let allData = dashSheet.getDataRange().getValues();
+  const findVal = (label) => {
+    let cleanLabel = label.toLowerCase().trim();
+    for (let r = 0; r < allData.length; r++) {
+      for (let c = 0; c < allData[r].length; c++) {
+        let currentCell = allData[r][c].toString().toLowerCase().trim();
+        if (currentCell === cleanLabel && c + 1 < allData[r].length) return allData[r][c+1];
+      }
+    }
+    return null;
+  };
+
+  let warId = findVal("War ID") || "Test_" + new Date().getTime();
+  
+  // Header Logic
+  let headerInfo = {
+    enemy: findVal("Enemy Faction Name") || "Unknown",
+    score: Math.round(parseFloat(findVal("War Score")) || 0), 
+    outcome: findVal("Outcome (Result)") || "Unknown",
+    termed: findVal("Termed?") || "No",
+    totalHits: payoutSheet.getRange("C1").getValue(), // FIXED: Pulls from Payouts!C1
+    warHits: findVal("Total War Hits") || 0,
+    revenue: findVal("Total Revenue") || 0,
+    payout: findVal("PAYOUT TOTAL") || 0,
+    profit: findVal("Actual Faction Deduction") || 0,
+    caches: findVal("Caches / Items Won") || "None"
+  };
+
+  let targetSheet = externalSS.getSheetByName(warId.toString()) || externalSS.insertSheet(warId.toString());
+  targetSheet.clear(); 
+
+  let numPayoutCols = payoutSheet.getLastColumn();
+  let totalArchiveCols = numPayoutCols + 2;
+
+  let lastP = payoutSheet.getLastRow();
+  if (lastP >= 3) {
+    let pData = payoutSheet.getRange(3, 1, lastP - 2, numPayoutCols).getValues();
+    let pHeaders = payoutSheet.getRange(2, 1, 1, numPayoutCols).getValues()[0];
+    let activeData = pData.filter(row => row[0] !== ""); 
+    
+    if (activeData.length > 0) {
+      let timeStamp = new Date();
+      const pad = (arr) => { while (arr.length < totalArchiveCols) arr.push(""); return arr; };
+
+      let reportHeader = [
+        pad([`WAR REPORT: ${headerInfo.enemy} [${warId}]`]),
+        pad(["Date Archived:", timeStamp, "Outcome:", headerInfo.outcome, "Termed:", headerInfo.termed]),
+        pad(["Total Attacks Logged:", headerInfo.totalHits, "Total War Hits:", headerInfo.warHits, "War Score:", headerInfo.score]),
+        pad(["Total Revenue:", headerInfo.revenue, "Total Payouts:", headerInfo.payout, "Faction Profit:", headerInfo.profit]),
+        pad(["Caches Won:", headerInfo.caches]),
+        pad([""]),
+        pad(["Archive Date", "War ID"].concat(pHeaders))
+      ];
+
+      targetSheet.getRange(1, 1, reportHeader.length, totalArchiveCols).setValues(reportHeader);
+      targetSheet.getRange(1, 1, 1, totalArchiveCols).setBackground("#444444").setFontColor("white").setFontWeight("bold").merge();
+      targetSheet.getRange(7, 1, 1, totalArchiveCols).setBackground("#eeeeee").setFontWeight("bold");
+      
+      // Formatting
+      targetSheet.getRange(2, 2).setNumberFormat("yyyy-mm-dd HH:mm");
+      targetSheet.getRange(3, 2).setNumberFormat("#,##0");           // Total Hits
+      targetSheet.getRange(3, 4).setNumberFormat("#,##0");           // War Hits
+      targetSheet.getRange(3, 6).setNumberFormat("#,##0");           // War Score
+      
+      targetSheet.getRange(4, 2).setNumberFormat('"$ "#,##0'); 
+      targetSheet.getRange(4, 4).setNumberFormat('"$ "#,##0'); 
+      targetSheet.getRange(4, 6).setNumberFormat('"$ "#,##0'); 
+
+      let archiveData = activeData.map(row => [timeStamp, warId].concat(row));
+      targetSheet.getRange(8, 1, archiveData.length, totalArchiveCols).setValues(archiveData);
+      
+      targetSheet.setColumnWidths(1, totalArchiveCols, 110);
+      targetSheet.setFrozenRows(7);
+      targetSheet.getDataRange().setWrap(true);
+
+      ui.alert(`🧪 Test Complete! Archive sheet ${warId} created.`);
+    }
+  }
+}
+
+// ==========================================
+// 2. ARCHIVE & SMART RESET (PRODUCTION)
+// ==========================================
 function archiveAndResetWar() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    "⚠️ WARNING: FACTORY RESET", 
+    "This will archive your report using Payouts!C1 for Hits, uncheck boxes, and WIPE local sheets. Proceed?", 
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response !== ui.Button.YES) return;
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const configSheet = ss.getSheetByName(SETTINGS.configSheet);
-  const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
-  const payoutSheet = ss.getSheetByName(SETTINGS.payoutSheet);
+  let rawId = configSheet ? configSheet.getRange("B3").getValue().toString().trim() : "";
   
-  if (!configSheet || !dashSheet || !payoutSheet) {
-    ss.toast("Missing necessary tabs to perform archive.", "Error", 5);
-    return;
+  let archiveId = rawId;
+  if (rawId.includes("/d/")) {
+    let match = rawId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) archiveId = match[1];
   }
 
-  const archiveId = configSheet.getRange(SETTINGS.archiveIdCell).getValue().toString().trim();
-  if (!archiveId) {
-    ss.toast("Archive ID missing in Config B3.", "Error", 5);
-    return;
-  }
-
-  let archiveSS;
+  let externalSS;
   try {
-    archiveSS = SpreadsheetApp.openById(archiveId);
-  } catch(e) {
-    ss.toast("Could not open Archive Spreadsheet.", "Error", 5);
+    externalSS = SpreadsheetApp.openById(archiveId);
+  } catch (e) {
+    ui.alert("⚠️ Access Error! Check permissions.");
     return;
   }
 
-  ss.toast("Generating permanent archive snapshot...", "System", 3);
+  let dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
+  let payoutSheet = ss.getSheetByName(SETTINGS.payoutSheet);
+  ss.toast("Archiving and Resetting...", "System", 3);
 
-  // --- 2. GATHER DATA (Updated for New Row Layout) ---
-  const enemyId   = dashSheet.getRange("C3").getValue().toString().trim() || "Unknown";
-  const startDate = dashSheet.getRange("C4").getValue().toString().trim() || "Unknown";
-  const endDate   = dashSheet.getRange("C5").getValue().toString().trim() || "Ongoing"; // NEW
-  const outcome   = dashSheet.getRange("C10").getValue().toString().trim() || "N/A";   // SHIFTED
-  const termed    = dashSheet.getRange("C15").getValue().toString().trim() || "N/A";   // SHIFTED
+  let allData = dashSheet.getDataRange().getValues();
+  const findVal = (label) => {
+    let cleanLabel = label.toLowerCase().trim();
+    for (let r = 0; r < allData.length; r++) {
+      for (let c = 0; c < allData[r].length; c++) {
+        let currentCell = allData[r][c].toString().toLowerCase().trim();
+        if (currentCell === cleanLabel && c + 1 < allData[r].length) return allData[r][c+1];
+      }
+    }
+    return null;
+  };
 
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue().toString().trim();
-  let enemyName = enemyId;
-  if (apiKey && enemyId && enemyId !== "None Set") {
-    try {
-      const url = `https://api.torn.com/faction/${enemyId}?selections=basic&key=${apiKey}`;
-      const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-      const json = JSON.parse(response.getContentText());
-      if (json && json.name) { enemyName = `${json.name} [${enemyId}]`; }
-    } catch (e) {}
-  }
+  let warId = findVal("War ID") || "War_" + new Date().getTime();
+  let targetSheet = externalSS.getSheetByName(warId.toString()) || externalSS.insertSheet(warId.toString());
 
-  // Master Header now includes End Date
-  const masterHeader = `  ⚔️ vs ${enemyName}  |  🏆 ${outcome}  |  🤝 Termed: ${termed}  |  📅 ${startDate} to ${endDate}`;
+  let headerInfo = {
+    enemy: findVal("Enemy Faction Name") || "Unknown",
+    score: Math.round(parseFloat(findVal("War Score")) || 0),
+    outcome: findVal("Outcome (Result)") || "Unknown",
+    termed: findVal("Termed?") || "No",
+    totalHits: payoutSheet.getRange("C1").getValue(), 
+    warHits: findVal("Total War Hits") || 0,
+    revenue: findVal("Total Revenue") || 0,
+    payout: findVal("PAYOUT TOTAL") || 0,
+    profit: findVal("Actual Faction Deduction") || 0,
+    caches: findVal("Caches / Items Won") || "None"
+  };
 
-  // --- 3. EXTRACT VALUES ---
-  const pRange = payoutSheet.getDataRange();
-  const pData = pRange.getValues(); 
-  const pColors = pRange.getBackgrounds();
-  const pFontColors = pRange.getFontColors();
-  const pFontWeights = pRange.getFontWeights();
-  const pFormats = pRange.getNumberFormats();
+  let numPayoutCols = payoutSheet.getLastColumn();
+  let totalArchiveCols = numPayoutCols + 2;
 
-  // --- 4. CREATE ARCHIVE TAB ---
-  const dateString = new Date().toLocaleDateString().replace(/\//g, "-");
-  let newSheetName = `${enemyName} (${dateString})`;
-  let counter = 1;
-  while (archiveSS.getSheetByName(newSheetName)) {
-    newSheetName = `${enemyName} (${dateString}) v${counter}`;
-    counter++;
-  }
-  
-  const newArchiveSheet = archiveSS.insertSheet(newSheetName, 0);
-  newArchiveSheet.setHiddenGridlines(true);
-
-  // --- 5. STYLE HEADER ---
-  newArchiveSheet.getRange("B1").setValue(masterHeader).setBackground("#000000").setFontColor("#ffffff").setFontWeight("bold").setFontSize(11).setHorizontalAlignment("left").setVerticalAlignment("middle");
-  newArchiveSheet.getRange(1, 1, 1, pData[0].length).setBackground("#000000");
-
-  // --- 6. PASTE DATA ---
-  const targetRange = newArchiveSheet.getRange(2, 1, pData.length, pData[0].length);
-  targetRange.setValues(pData).setBackgrounds(pColors).setFontColors(pFontColors).setFontWeights(pFontWeights).setNumberFormats(pFormats);
-
-  // --- 7. FORMATTING ---
-  newArchiveSheet.setColumnWidth(2, 160); 
-  newArchiveSheet.setColumnWidth(3, 115); 
-  newArchiveSheet.setColumnWidth(4, 130); 
-  for (let c = 5; c <= 14; c++) { newArchiveSheet.setColumnWidth(c, 115); }
-  newArchiveSheet.setFrozenRows(3); 
-  newArchiveSheet.setFrozenColumns(2); 
-  newArchiveSheet.hideColumns(1); 
-  newArchiveSheet.hideColumns(20); 
-
-  ss.toast("Archive Successful! Scrubbing workspace...", "System", 3);
-
-  // --- 8. RESET EVERYTHING ---
-  let rdSheet = ss.getSheetByName(SETTINGS.rdSheet);
-  if (rdSheet) {
-    rdSheet.clear();
-    rdSheet.getRange("A1:R1").setValues([SETTINGS.rdHeaders]).setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
-  }
-
-  const lastP = payoutSheet.getLastRow();
+  let lastP = payoutSheet.getLastRow();
   if (lastP >= 3) {
-    payoutSheet.getRange(3, 4, lastP - 2, 11).clearContent(); 
-    const names = payoutSheet.getRange(1, 2, lastP, 1).getValues();
-    for (let i = names.length - 1; i >= 0; i--) {
-      if (names[i][0] === "⚠️ NON-ROSTER / LEFT FACTION") { payoutSheet.deleteRow(i + 1); }
+    let pData = payoutSheet.getRange(3, 1, lastP - 2, numPayoutCols).getValues();
+    let pHeaders = payoutSheet.getRange(2, 1, 1, numPayoutCols).getValues()[0];
+    let activeData = pData.filter(row => row[0] !== ""); 
+    
+    if (activeData.length > 0) {
+      let timeStamp = new Date();
+      const pad = (arr) => { while (arr.length < totalArchiveCols) arr.push(""); return arr; };
+      let reportHeader = [
+        pad([`WAR REPORT: ${headerInfo.enemy} [${warId}]`]),
+        pad(["Date Archived:", timeStamp, "Outcome:", headerInfo.outcome, "Termed:", headerInfo.termed]),
+        pad(["Total Attacks Logged:", headerInfo.totalHits, "Total War Hits:", headerInfo.warHits, "War Score:", headerInfo.score]),
+        pad(["Total Revenue:", headerInfo.revenue, "Total Payouts:", headerInfo.payout, "Faction Profit:", headerInfo.profit]),
+        pad(["Caches Won:", headerInfo.caches]),
+        pad([""]),
+        pad(["Archive Date", "War ID"].concat(pHeaders))
+      ];
+      targetSheet.getRange(1, 1, 7, totalArchiveCols).setValues(reportHeader);
+      targetSheet.getRange(1, 1, 1, totalArchiveCols).setBackground("#444444").setFontColor("white").setFontWeight("bold").merge();
+      targetSheet.getRange(7, 1, 1, totalArchiveCols).setBackground("#eeeeee").setFontWeight("bold");
+      
+      targetSheet.getRange(2, 2).setNumberFormat("yyyy-mm-dd HH:mm");
+      targetSheet.getRange(3, 2).setNumberFormat("#,##0");
+      targetSheet.getRange(3, 4).setNumberFormat("#,##0");
+      targetSheet.getRange(3, 6).setNumberFormat("#,##0");
+      targetSheet.getRange(4, 2).setNumberFormat('"$ "#,##0');
+      targetSheet.getRange(4, 4).setNumberFormat('"$ "#,##0');
+      targetSheet.getRange(4, 6).setNumberFormat('"$ "#,##0');
+      
+      let archiveData = activeData.map(row => [timeStamp, warId].concat(row));
+      targetSheet.getRange(8, 1, archiveData.length, totalArchiveCols).setValues(archiveData);
+      targetSheet.setFrozenRows(7);
+      targetSheet.getDataRange().setWrap(true);
     }
   }
 
+  // --- LOCAL WIPE LOGIC ---
+  let rdSheet = ss.getSheetByName(SETTINGS.rdSheet);
+  if (rdSheet && rdSheet.getLastRow() > 1) {
+    rdSheet.getRange(2, 1, rdSheet.getLastRow() - 1, rdSheet.getLastColumn()).clearContent();
+  }
   let bountySheet = ss.getSheetByName(SETTINGS.bountySheet);
-  if (bountySheet) {
-    const bLast = bountySheet.getLastRow();
-    if (bLast > 1) bountySheet.getRange(2, 1, bLast - 1, 7).clearContent();
+  if (bountySheet && bountySheet.getLastRow() > 1) {
+    bountySheet.getRange(2, 1, bountySheet.getLastRow() - 1, bountySheet.getLastColumn()).clearContent();
+  }
+  let oWarSheet = ss.getSheetByName("Official War Report");
+  if (oWarSheet) oWarSheet.clear();
+  let oChainSheet = ss.getSheetByName("Official Chain Report");
+  if (oChainSheet) oChainSheet.clear();
+
+  if (payoutSheet && payoutSheet.getLastRow() >= 3) {
+    
+    // ---> NEW: UNCHECK ALL CHECKBOXES SAFELY <---
+    payoutSheet.getRange(3, 1, payoutSheet.getLastRow() - 2, payoutSheet.getLastColumn()).uncheck();
+    
+    // Clear numerical calculation area
+    payoutSheet.getRange(3, 5, payoutSheet.getLastRow() - 2, payoutSheet.getLastColumn() - 4).clearContent();
+    
+    let pData = payoutSheet.getDataRange().getValues();
+    let ghostRowIdx = -1;
+    for(let i = 0; i < pData.length; i++) {
+      if (pData[i][1] === "⚠️ NON-ROSTER / LEFT FACTION" || pData[i][1].toString().includes("(Left Faction)")) { ghostRowIdx = i + 1; break; }
+    }
+    if (ghostRowIdx > 0) { payoutSheet.deleteRows(ghostRowIdx, payoutSheet.getLastRow() - ghostRowIdx + 1); }
   }
 
-  dashSheet.getRange("C3").setValue("None Set");
-  dashSheet.getRange("C4:C5").setValue("No Data"); // Clears Start and End
-  dashSheet.getRange("C6").setValue("No Data");    // Clears War ID
-  dashSheet.getRange("C10").setValue("Ongoing");
-  dashSheet.getRange("C15").setValue("No");
-  dashSheet.getRange("C11:C13").clearContent();
-  dashSheet.getRange("L3:L8").clearContent(); 
-  
-  ss.toast("Ready for the next one!", "Success", 5);
+  if (dashSheet) {
+    const setVal = (label, value) => {
+      let dashData = dashSheet.getDataRange().getValues();
+      for (let r = 0; r < dashData.length; r++) {
+        for (let c = 0; c < dashData[r].length; c++) {
+          if (dashData[r][c] === label) { dashSheet.getRange(r + 1, c + 2).setValue(value); return; }
+        }
+      }
+    };
+    setVal("Enemy Faction ID", ""); setVal("Enemy Faction Name", "Unknown");
+    setVal("War Report ID", ""); setVal("Chain Report ID", "");
+    setVal("Outcome (Result)", "Ongoing"); setVal("Termed?", "No");
+    setVal("Total Revenue", 0); setVal("- Temp Cost", 0);
+    setVal("- Revives", 0); setVal("- Xanax", 0); setVal("- Other Cost", 0);
+    setVal("Est. Cache Value", ""); setVal("Caches / Items Won", "");
+    if (typeof buildDashboard === "function") { buildDashboard(); }
+  }
+
+  ui.alert(`🧹 Reset Complete! Created archive sheet: ${warId} and cleared all checkboxes.`);
 }

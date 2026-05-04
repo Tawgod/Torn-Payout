@@ -52,9 +52,6 @@ function buildPayoutTab() {
   // Row 1: Hit Checkers & Weights
   payoutSheet.getRange("B1").setValue("Total Hits").setFontWeight("bold").setFontColor("#cc0000").setHorizontalAlignment("right");
   
-  let maxRow = activeMembers.length + 2; 
-  if (maxRow < 3) maxRow = 3; // Safety fallback
-
   payoutSheet.getRange("C1").setFormula(`=IFERROR(SUM(E3:E500) + SUM(I3:I500), 0)`)
              .setFontWeight("bold").setFontSize(14).setFontColor("#cc0000")
              .setNumberFormat('#,##0'); 
@@ -86,14 +83,16 @@ function buildPayoutTab() {
              .setHorizontalAlignment("center")
              .setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
 
-  // 5. MASTER PROPORTIONAL FORMULAS (Now wrapped in IFERROR armor!)
+  // 5. MASTER PROPORTIONAL FORMULAS (Unbound to Row 500)
   if (activeMembers.length > 0) {
     for (let r = 0; r < activeMembers.length; r++) {
       let rowNum = r + 3;
       
       let scoreFormula = `=IFERROR(SUMPRODUCT($E$1:$N$1, E${rowNum}:N${rowNum}), 0)`;
-      let contribFormula = `=IFERROR(IF(SUM($T$3:$T$${maxRow})>0, T${rowNum} / SUM($T$3:$T$${maxRow}), 0), 0)`;
-      let payoutFormula = `=IFERROR(IF(C${rowNum}>0, C${rowNum} * '${dashboardName}'!$L$13, 0), 0)`;
+      
+      // FIX: Expanded the sum boundary from maxRow to 500 to automatically capture Left Faction players
+      let contribFormula = `=IFERROR(IF(SUM($T$3:$T$500)>0, T${rowNum} / SUM($T$3:$T$500), 0), 0)`;
+      let payoutFormula = `=IFERROR(IF(C${rowNum}>0, C${rowNum} * '${dashboardName}'!$I$13, 0), 0)`;
       
       payoutSheet.getRange(rowNum, 20).setFormula(scoreFormula); 
       payoutSheet.getRange(rowNum, 3).setFormula(contribFormula).setNumberFormat('0.00%'); 
@@ -129,5 +128,9 @@ function buildPayoutTab() {
 
   ss.toast("Payout Tab Restored! Crunching metrics...", "System", 3);
   SpreadsheetApp.flush();
-  runPayoutMath(); // Chains directly into the calculator!
+  
+  // Triggers the script we just perfected!
+  if (typeof runPayoutMath === "function") {
+    runPayoutMath(); 
+  }
 }
