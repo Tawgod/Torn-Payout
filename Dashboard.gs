@@ -10,24 +10,48 @@ function fetchOfficialReports() {
   
   const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue().toString().trim();
   const rawConfigFactionId = configSheet.getRange(SETTINGS.factionIdCell || "B7").getValue().toString().trim();
-
+  
   if (!apiKey) {
     SpreadsheetApp.getUi().alert("Missing API Key in Config Sheet.");
     return;
   }
   
   let allData = dashSheet.getDataRange().getValues();
+  
   const findVal = (label) => {
+    let cleanLabel = label.toLowerCase().trim();
     for (let r = 0; r < allData.length; r++) {
       for (let c = 0; c < allData[r].length; c++) {
-        if (allData[r][c] === label && c + 1 < allData[r].length) return allData[r][c+1];
+        let cellText = allData[r][c] ? allData[r][c].toString().toLowerCase().trim() : "";
+        if (cellText === cleanLabel && c + 1 < allData[r].length) {
+          return allData[r][c+1];
+        }
       }
     }
     return "";
   };
 
-  const warId = findVal("War Report ID").toString().trim();
-  const rawChainId = findVal("Chain Report ID").toString().trim();
+  const setVal = (label, value) => {
+    let cleanLabel = label.toLowerCase().trim();
+    for (let r = 0; r < allData.length; r++) {
+      for (let c = 0; c < allData[r].length; c++) {
+        let cellText = allData[r][c] ? allData[r][c].toString().toLowerCase().trim() : "";
+        if (cellText === cleanLabel) {
+          dashSheet.getRange(r + 1, c + 2).setValue(value);
+          return;
+        }
+      }
+    }
+  };
+
+  const formatTornDate = (unix) => {
+    if (!unix || unix === 0) return "Ongoing";
+    let d = new Date(unix * 1000);
+    return Utilities.formatDate(d, "GMT", "yyyy-MM-dd HH:mm"); 
+  };
+
+  const warId = findVal("war report id").toString().trim();
+  const rawChainId = findVal("chain report id").toString().trim();
   
   if (!warId && !rawChainId) {
     SpreadsheetApp.getUi().alert("Please enter a War ID or a Chain ID in the Official Reports box.");
@@ -49,6 +73,7 @@ function fetchOfficialReports() {
   
   // --- OFFICIAL WAR REPORT ---
   if (warId) {
+    ss.toast("Fetching War Report...", "System", 3);
     let warUrl = `https://api.torn.com/torn/${warId}?selections=rankedwarreport&key=${apiKey}`;
     let res = UrlFetchApp.fetch(warUrl, { muteHttpExceptions: true });
     let json = JSON.parse(res.getContentText());
@@ -62,24 +87,24 @@ function fetchOfficialReports() {
       let rw = json.rankedwarreport;
       let startUnix = rw.war ? rw.war.start : rw.start;
       let endUnix = rw.war ? rw.war.end : rw.end;
-      let start = new Date(startUnix * 1000).toUTCString();
-      let end = endUnix ? new Date(endUnix * 1000).toUTCString() : "Ongoing";
+      
+      let startStr = formatTornDate(startUnix);
+      let endStr = formatTornDate(endUnix);
       
       let output = [];
       output.push(["⚔️ OFFICIAL WAR REPORT", ""]);
       output.push(["War ID", warId]);
-      output.push(["Start (UTC)", start]);
-      output.push(["End (UTC)", end]);
+      output.push(["Start (UTC)", startStr]);
+      output.push(["End (UTC)", endStr]);
       output.push(["(Note: API does not provide Hosp/Mug splits for Wars)", ""]);
       output.push(["", ""]);
       
       output.push(["🏆 FACTION REWARDS", ""]);
-      
       let facKeys = Object.keys(rw.factions || {});
       let myFacIdStr = rawConfigFactionId;
       
       if (facKeys.length > 0 && (!myFacIdStr || !facKeys.includes(myFacIdStr))) {
-        let dashEnemyId = findVal("Enemy Faction ID").toString().trim(); 
+        let dashEnemyId = findVal("enemy faction id").toString().trim();
         for (let f of facKeys) {
           if (f !== dashEnemyId) { myFacIdStr = f; break; }
         }
@@ -87,11 +112,14 @@ function fetchOfficialReports() {
 
       let outcomeStr = "Ongoing";
       let warEnded = (rw.war && rw.war.end && rw.war.end > 0);
+      let myTotalWarHits = 0; 
+      
       if (warEnded) {
         if (facKeys.length === 2 && myFacIdStr) {
           let myScore = rw.factions[myFacIdStr].score;
           let enemyId = facKeys[0] === myFacIdStr ? facKeys[1] : facKeys[0];
           let enemyScore = rw.factions[enemyId].score;
+          
           if (myScore > enemyScore) outcomeStr = "Win";
           else if (myScore < enemyScore) outcomeStr = "Loss";
           else outcomeStr = "Draw";
@@ -108,7 +136,7 @@ function fetchOfficialReports() {
           for (let n in newsJson.news) {
             let text = newsJson.news[n].news || "";
             if (text.includes("received") && text.includes("respect") && (text.includes("ranked") || text.includes("retained"))) {
-              exactLogString = text.replace(/(<([^>]+)>)/ig, ''); 
+              exactLogString = text.replace(/(<([^>]+)>)/ig, '');
               break; 
             }
           }
@@ -119,24 +147,46 @@ function fetchOfficialReports() {
       
       let cacheList = [];
       let totalCacheValue = 0;
-      if (rw.factions && rw.factions[myFacIdStr] && rw.factions[myFacIdStr].rewards) {
-        let r = rw.factions[myFacIdStr].rewards;
-        output.push(["Points Won", r.points || 0]);
-        output.push(["Respect Won", r.respect || 0]);
-        
-        if (r.items) {
-          for (let i in r.items) { 
-            let qty = r.items[i].quantity;
-            let name = r.items[i].name;
-            cacheList.push(`${qty}x ${name}`); 
-            if (itemValueMap[name]) {
-              totalCacheValue += (qty * itemValueMap[name]);
+      if (rw.factions && rw.factions[myFacIdStr]) {
+        if (rw.factions[myFacIdStr].members) {
+           for (let m in rw.factions[myFacIdStr].members) {
+              myTotalWarHits += (rw.factions[myFacIdStr].members[m].attacks || 0);
+           }
+        }
+
+        if (rw.factions[myFacIdStr].rewards) {
+          let r = rw.factions[myFacIdStr].rewards;
+          output.push(["Points Won", r.points || 0]);
+          output.push(["Respect Won", r.respect || 0]);
+          if (r.items) {
+            for (let i in r.items) { 
+              let qty = r.items[i].quantity;
+              let name = r.items[i].name;
+              cacheList.push(`${qty}x ${name}`); 
+              if (itemValueMap[name]) {
+                totalCacheValue += (qty * itemValueMap[name]);
+              }
             }
           }
         }
       }
-      output.push(["Caches / Items Won", cacheList.length > 0 ? cacheList.join("\n") : "None"]);
+      
+      let cacheString = cacheList.length > 0 ? cacheList.join(", ") : "None";
+      output.push(["Caches / Items Won", cacheString]);
       output.push(["Estimated Cache Value", totalCacheValue > 0 ? totalCacheValue : ""]);
+      
+      dashSheet.getRange("C5").setNumberFormat("@").setValue(startStr);       
+      dashSheet.getRange("C6").setNumberFormat("@").setValue(endStr);   
+      dashSheet.getRange("C7").setNumberFormat("@").setValue(warId);      
+      
+      setVal("caches / items won", cacheString);
+      setVal("total war hits", myTotalWarHits);
+      
+      if (totalCacheValue > 0) {
+        setVal("est. cache value", totalCacheValue);
+        setVal("actual cache value", totalCacheValue);
+      }
+
       output.push(["", ""]);
       
       let memberRows = [];
@@ -164,13 +214,18 @@ function fetchOfficialReports() {
       warSheet.getRange(7, 1, 1, 2).setBackground("#f1c232").setFontWeight("bold"); 
       warSheet.getRange(output.length - memberRows.length + 1, 1, 1, maxColsWar).setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
       warSheet.autoResizeColumns(1, maxColsWar);
-    } else {
-      warSheet.getRange("A1").setValue("Error: Could not load War Report. Check ID or API Key.");
+      warSheet.getRange("B3:B4").setNumberFormat("@");
     }
   }
   
-  // --- OFFICIAL CHAIN REPORT (MULTI-CHAIN) ---
+  // --- OFFICIAL CHAIN REPORT & RD TAB EXTRACTION ---
   let chainIds = rawChainId.split(',').map(id => id.trim()).filter(id => id !== "");
+  let usedOfficialChain = false;
+
+  let finalChainStart = "N/A";
+  let finalChainEnd = "N/A";
+  let finalChainHits = 0;
+  let finalChainRespect = 0;
   
   if (chainIds.length > 0) {
     let chainSheetName = "Official Chain Report";
@@ -179,12 +234,10 @@ function fetchOfficialReports() {
     else { chainSheet.clear(); chainSheet.clearFormats(); }
 
     if (chainIds.length > 1) {
-      ss.toast(`Fetching ${chainIds.length} chains. This may take a moment...`, "Processing", 5);
+      ss.toast(`Fetching ${chainIds.length} chains...`, "Processing", 5);
     }
 
     let combinedStats = {};
-    let totalChainHits = 0;
-    let totalChainRespect = 0;
     let firstStart = null;
     let lastEnd = null;
     let apiErrorFlag = false;
@@ -199,18 +252,14 @@ function fetchOfficialReports() {
         
         if (json.chainreport) {
           let cr = json.chainreport;
-          
           if (firstStart === null || cr.start < firstStart) firstStart = cr.start;
           if (lastEnd === null || cr.end > lastEnd) lastEnd = cr.end;
           
-          totalChainHits += (cr.hits || 0);
-          totalChainRespect += (cr.respect || 0);
+          finalChainRespect += (cr.respect || 0);
 
           if (cr.members) {
             for (let m in cr.members) {
-              if (!combinedStats[m]) {
-                combinedStats[m] = { attacks: 0, respect: 0, leave: 0, mug: 0, hosp: 0, assist: 0, overseas: 0, draw: 0, escape: 0, loss: 0 };
-              }
+              if (!combinedStats[m]) combinedStats[m] = { attacks: 0, respect: 0, leave: 0, mug: 0, hosp: 0, assist: 0, overseas: 0, draw: 0, escape: 0, loss: 0 };
               let mem = cr.members[m];
               combinedStats[m].attacks += mem.attacks || 0;
               combinedStats[m].respect += mem.respect || 0;
@@ -222,59 +271,103 @@ function fetchOfficialReports() {
               combinedStats[m].draw += mem.draw || 0;
               combinedStats[m].escape += mem.escape || 0;
               combinedStats[m].loss += mem.loss || 0;
+              
+              finalChainHits += mem.attacks || 0;
             }
           } else {
             apiErrorFlag = true;
           }
         }
-      } catch (e) {
-        ss.toast(`Error fetching chain ${chainId}`, "API Error", 5);
-      }
-
-      // Pause to respect Torn API limits if pulling multiple chains
-      if (i < chainIds.length - 1) {
-        Utilities.sleep(350); 
-      }
+      } catch (e) {}
+      if (i < chainIds.length - 1) Utilities.sleep(350);
     }
 
-    // Build the output for the Chain tab
-    let output = [];
-    output.push(["⛓️ OFFICIAL CHAIN REPORT", ""]);
-    output.push(["Chain ID(s)", chainIds.join(", ")]);
-    output.push(["Earliest Start (UTC)", firstStart ? new Date(firstStart * 1000).toUTCString() : "N/A"]);
-    output.push(["Latest End (UTC)", lastEnd ? new Date(lastEnd * 1000).toUTCString() : "N/A"]);
-    output.push(["Total Hits", totalChainHits]);
-    output.push(["Total Respect", totalChainRespect]);
-    output.push(["", ""]);
-    
-    let memberRows = [];
-    memberRows.push(["Member ID", "Total Attacks", "Respect", "Leave", "Mug", "Hosp", "Assist", "Overseas", "Draw", "Escape", "Loss"]);
-    
-    if (apiErrorFlag && Object.keys(combinedStats).length === 0) {
-      memberRows.push(["API ERROR:", "Torn hid member data. You MUST use a 'Limited Access' API key.", "", "", "", "", "", "", "", "", ""]);
-    } else {
-      for (let m in combinedStats) {
-        let mem = combinedStats[m];
-        memberRows.push([
-          m, mem.attacks, mem.respect, mem.leave, mem.mug, mem.hosp, 
-          mem.assist, mem.overseas, mem.draw, mem.escape, mem.loss
-        ]);
+    if (finalChainHits > 0) {
+      usedOfficialChain = true;
+      finalChainStart = formatTornDate(firstStart);
+      finalChainEnd = formatTornDate(lastEnd);
+
+      let output = [];
+      output.push(["⛓️ OFFICIAL CHAIN REPORT", ""]);
+      output.push(["Chain ID(s)", chainIds.join(", ")]);
+      output.push(["Earliest Start (UTC)", finalChainStart]);
+      output.push(["Latest End (UTC)", finalChainEnd]);
+      output.push(["Total Hits", "=SUM(B9:B)"]); 
+      output.push(["Total Respect", finalChainRespect]);
+      output.push(["", ""]);
+      
+      let memberRows = [];
+      memberRows.push(["Member ID", "Total Attacks", "Respect", "Leave", "Mug", "Hosp", "Assist", "Overseas", "Draw", "Escape", "Loss"]);
+      
+      if (apiErrorFlag && Object.keys(combinedStats).length === 0) {
+        memberRows.push(["API ERROR:", "Torn hid member data.", "", "", "", "", "", "", "", "", ""]);
+      } else {
+        for (let m in combinedStats) {
+          let mem = combinedStats[m];
+          memberRows.push([m, mem.attacks, mem.respect, mem.leave, mem.mug, mem.hosp, mem.assist, mem.overseas, mem.draw, mem.escape, mem.loss]);
+        }
       }
+      
+      output = output.concat(memberRows);
+      const maxColsChain = 11;
+      for (let r = 0; r < output.length; r++) { while (output[r].length < maxColsChain) { output[r].push(""); } }
+      
+      chainSheet.getRange(1, 1, output.length, maxColsChain).setValues(output);
+      chainSheet.getRange(1, 1, 1, 2).setBackground("#3c78d8").setFontColor("white").setFontWeight("bold");
+      chainSheet.getRange(8, 1, 1, maxColsChain).setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
+      chainSheet.autoResizeColumns(1, maxColsChain);
+      chainSheet.getRange("B3:B4").setNumberFormat("@");
     }
-    
-    output = output.concat(memberRows);
-    
-    const maxColsChain = 11;
-    for (let r = 0; r < output.length; r++) { while (output[r].length < maxColsChain) { output[r].push(""); } }
-    
-    chainSheet.getRange(1, 1, output.length, maxColsChain).setValues(output);
-    chainSheet.getRange(1, 1, 1, 2).setBackground("#3c78d8").setFontColor("white").setFontWeight("bold");
-    chainSheet.getRange(8, 1, 1, maxColsChain).setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
-    chainSheet.autoResizeColumns(1, maxColsChain);
   }
   
+  // FALLBACK: Read directly from the RD Tab
+  if (!usedOfficialChain) {
+    let rdSheet = ss.getSheetByName(SETTINGS.rdSheet);
+    if (rdSheet && rdSheet.getLastRow() > 1) {
+      let rdData = rdSheet.getDataRange().getValues();
+      let rdFirst = null; let rdLast = null; 
+      let rdTotalAttacks = 0; let rdTotalRespect = 0;
+      
+      let cleanId = (val) => (val === null || val === undefined) ? "" : val.toString().replace(/,/g, "").trim();
+      
+      for (let i = 1; i < rdData.length; i++) {
+        let tVal = rdData[i][2]; // Column C (Timestamp)
+        let aFac = cleanId(rdData[i][5]); // Column F (Attacker Faction ID)
+        let respect = parseFloat(rdData[i][10]) || 0; // Column K (Respect)
+        
+        if (aFac !== "" && aFac === rawConfigFactionId) {
+          rdTotalAttacks++;
+          rdTotalRespect += respect;
+          let tMs = new Date(tVal).getTime();
+          if (!isNaN(tMs)) {
+            if (rdFirst === null || tMs < rdFirst) rdFirst = tMs;
+            if (rdLast === null || tMs > rdLast) rdLast = tMs;
+          }
+        }
+      }
+      
+      const formatTornDateMs = (ms) => {
+        if (!ms) return "N/A";
+        return Utilities.formatDate(new Date(ms), "GMT", "yyyy-MM-dd HH:mm");
+      };
+      
+      if (rdTotalAttacks > 0) {
+        finalChainStart = rdFirst ? formatTornDateMs(rdFirst) : "N/A";
+        finalChainEnd = rdLast ? formatTornDateMs(rdLast) : "N/A";
+        finalChainHits = rdTotalAttacks;
+        finalChainRespect = rdTotalRespect;
+      }
+    }
+  }
+
+  // HARDCODED DASHBOARD PUSH
+  dashSheet.getRange("C16").setNumberFormat("@").setValue(finalChainStart);       
+  dashSheet.getRange("C17").setNumberFormat("@").setValue(finalChainEnd);         
+  dashSheet.getRange("C18").setValue(finalChainHits);        
+  dashSheet.getRange("C19").setValue(finalChainRespect);     
+  
   if (typeof refreshDashboard === "function") { refreshDashboard(); }
-  SpreadsheetApp.getUi().alert("✅ Official Reports Fetched & Combined!");
+  SpreadsheetApp.getUi().alert("✅ Official Reports Fetched & Insights Populated!");
 }
 
 // ==========================================
@@ -285,31 +378,24 @@ function refreshDashboard() {
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
   const configSheet = ss.getSheetByName(SETTINGS.configSheet);
 
-  if (!dashSheet || !configSheet) {
-    SpreadsheetApp.getUi().alert("⚠️ Missing Dashboard or Config sheet.");
-    return;
-  }
+  if (!dashSheet || !configSheet) return;
 
-  // Grab API Key and your Faction ID from Config
   const apiKey = configSheet.getRange(SETTINGS.apiKeyCell || "B3").getValue().toString().trim();
   const myFactionId = configSheet.getRange(SETTINGS.factionIdCell || "B7").getValue().toString().trim();
 
-  if (!apiKey) {
-    ss.toast("API Key missing. Cannot refresh dashboard.", "Error", 5);
-    return;
-  }
+  if (!apiKey) return;
 
-  ss.toast("Pinging Torn API...", "System", 3);
+  ss.toast("Pinging Torn API & Scanning Data...", "System", 3);
 
   let dashData = dashSheet.getDataRange().getValues();
 
-  // --- DYNAMIC DASHBOARD SCANNERS ---
   const findVal = (label) => {
     let cleanLabel = label.toLowerCase().trim();
     for (let r = 0; r < dashData.length; r++) {
       for (let c = 0; c < dashData[r].length; c++) {
-        if (dashData[r][c] && dashData[r][c].toString().toLowerCase().trim() === cleanLabel) {
-          return dashData[r][c + 1] ? dashData[r][c + 1].toString().trim() : "";
+        let cellText = dashData[r][c] ? dashData[r][c].toString().toLowerCase().trim() : "";
+        if (cellText === cleanLabel && c + 1 < dashData[r].length) {
+          return dashData[r][c+1];
         }
       }
     }
@@ -320,7 +406,8 @@ function refreshDashboard() {
     let cleanLabel = label.toLowerCase().trim();
     for (let r = 0; r < dashData.length; r++) {
       for (let c = 0; c < dashData[r].length; c++) {
-        if (dashData[r][c] && dashData[r][c].toString().toLowerCase().trim() === cleanLabel) {
+        let cellText = dashData[r][c] ? dashData[r][c].toString().toLowerCase().trim() : "";
+        if (cellText === cleanLabel) {
           dashSheet.getRange(r + 1, c + 2).setValue(value);
           return;
         }
@@ -328,102 +415,239 @@ function refreshDashboard() {
     }
   };
 
-  // Check if you manually typed in a War ID
-  let manualWarId = findVal("War Report ID");
+  const formatTornDate = (unix) => {
+    if (!unix || unix === 0) return "Ongoing";
+    let d = new Date(unix * 1000);
+    return Utilities.formatDate(d, "GMT", "yyyy-MM-dd HH:mm"); 
+  };
 
+  let manualWarId = findVal("war report id");
+
+  // 1. UPDATE ACTIVE WAR DATA
   try {
     if (manualWarId) {
-      // --- SCENARIO A: USER ENTERED A SPECIFIC WAR ID ---
       let url = `https://api.torn.com/torn/${manualWarId}?selections=rankedwarreport&key=${apiKey}`;
       let response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
       let json = JSON.parse(response.getContentText());
 
-      if (json.error) {
-        SpreadsheetApp.getUi().alert("Torn API Error on War ID: " + json.error.error);
-        return;
-      }
-
       if (json.rankedwarreport && json.rankedwarreport.factions) {
         let factions = json.rankedwarreport.factions;
-        let enemyFound = false;
-
-        // Find the faction that ISN'T you
+        
         for (let id in factions) {
           if (id !== myFactionId) {
-            setVal("Enemy Faction ID", id);
-            setVal("Enemy Faction Name", factions[id].name);
-            enemyFound = true;
+            setVal("enemy faction id", id);
+            setVal("enemy faction name", factions[id].name);
           } else {
-            setVal("War Score", factions[id].score);
+            setVal("war score", factions[id].score);
           }
         }
 
-        // --- NEW: DETERMINE WAR OUTCOME (Hardcoded to C10) ---
+        let startUnix = json.rankedwarreport.war ? json.rankedwarreport.war.start : json.rankedwarreport.start;
+        let endUnix = json.rankedwarreport.war ? json.rankedwarreport.war.end : json.rankedwarreport.end;
+        
+        dashSheet.getRange("C5").setNumberFormat("@").setValue(formatTornDate(startUnix));
+        dashSheet.getRange("C6").setNumberFormat("@").setValue(formatTornDate(endUnix));
+        dashSheet.getRange("C7").setNumberFormat("@").setValue(manualWarId); 
+
+        if (factions[myFactionId] && factions[myFactionId].rewards && factions[myFactionId].rewards.items) {
+          let myItems = factions[myFactionId].rewards.items;
+          let cacheArr = [];
+          for (let i in myItems) { cacheArr.push(`${myItems[i].quantity}x ${myItems[i].name}`); }
+          setVal("caches / items won", cacheArr.length > 0 ? cacheArr.join(", ") : "None");
+        }
+
         if (json.rankedwarreport.war && json.rankedwarreport.war.winner !== undefined) {
           let winnerId = json.rankedwarreport.war.winner.toString();
-          
-          if (winnerId === myFactionId) {
-            dashSheet.getRange("C10").setValue("Win");
-          } else if (winnerId === "0") {
-            dashSheet.getRange("C10").setValue("Draw");
-          } else {
-            dashSheet.getRange("C10").setValue("Loss");
-          }
+          if (winnerId === myFactionId) dashSheet.getRange("C10").setValue("Win");
+          else if (winnerId === "0") dashSheet.getRange("C10").setValue("Draw");
+          else dashSheet.getRange("C10").setValue("Loss");
         } else {
-          dashSheet.getRange("C10").setValue("Finished"); // Fallback if API acts weird
+          dashSheet.getRange("C10").setValue("Finished"); 
         }
-
-        if (enemyFound) {
-          ss.toast("✅ Enemy details & War Outcome auto-filled from War ID!", "Success", 5);
-        } else {
-          SpreadsheetApp.getUi().alert(`⚠️ Could not find an enemy faction in War [${manualWarId}]. Make sure Config B7 is your correct Faction ID.`);
-        }
-      } else {
-        SpreadsheetApp.getUi().alert(`⚠️ War ID [${manualWarId}] is invalid or API did not return war data.`);
       }
-
     } else {
-      // --- SCENARIO B: NO WAR ID (LOOK FOR ACTIVE WAR) ---
       let url = `https://api.torn.com/faction/?selections=basic&key=${apiKey}`;
       let response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
       let json = JSON.parse(response.getContentText());
 
-      if (json.error) {
-         SpreadsheetApp.getUi().alert("Torn API Error: " + json.error.error);
-         return;
-      }
-
-      // Check if you are currently in an active Ranked War
       if (json.ranked_wars && Object.keys(json.ranked_wars).length > 0) {
         let activeWarId = Object.keys(json.ranked_wars)[0];
         let warData = json.ranked_wars[activeWarId];
 
-        setVal("War Report ID", activeWarId);
-        setVal("War ID", activeWarId); 
-        
-        // --- NEW: MARK ACTIVE WARS AS ONGOING (Hardcoded to C10) ---
+        setVal("war report id", activeWarId);
+        dashSheet.getRange("C7").setNumberFormat("@").setValue(activeWarId); 
         dashSheet.getRange("C10").setValue("Ongoing");
 
         let factions = warData.factions;
         for (let id in factions) {
           if (id !== myFactionId) {
-            setVal("Enemy Faction ID", id);
-            setVal("Enemy Faction Name", factions[id].name);
+            setVal("enemy faction id", id);
+            setVal("enemy faction name", factions[id].name);
           } else {
-            setVal("War Score", factions[id].score);
+            setVal("war score", factions[id].score);
           }
         }
-        ss.toast("✅ Dashboard updated with live active Ranked War!", "Success", 5);
-      } else {
-        ss.toast("No War ID entered and no active Ranked War found.", "System", 3);
+        
+        if (warData.war && warData.war.start) {
+            dashSheet.getRange("C5").setNumberFormat("@").setValue(formatTornDate(warData.war.start));
+        }
       }
     }
-  } catch (e) {
-    ss.toast("Failed to connect to Torn API.", "Error", 5);
+  } catch (e) {}
+
+  // 2. CHAIN INSIGHTS: Pull directly from Official Chain Report Tab first
+  let oChainSheet = ss.getSheetByName("Official Chain Report");
+  let chainInsightsSet = false;
+
+  if (oChainSheet && oChainSheet.getLastRow() >= 6) {
+    let b3 = oChainSheet.getRange("B3").getDisplayValue().trim();
+    let b4 = oChainSheet.getRange("B4").getDisplayValue().trim();
+    let b5 = oChainSheet.getRange("B5").getValue();
+    let b6 = oChainSheet.getRange("B6").getValue();
+
+    if (b3 !== "" && b3 !== "N/A" && b5 !== "") {
+      dashSheet.getRange("C16").setNumberFormat("@").setValue(b3);
+      dashSheet.getRange("C17").setNumberFormat("@").setValue(b4);
+      dashSheet.getRange("C18").setValue(b5);
+      dashSheet.getRange("C19").setValue(b6);
+      chainInsightsSet = true;
+    }
+  }
+
+  // 3. FALLBACK: Live extraction from RD tab 
+  if (!chainInsightsSet) {
+    let rdSheet = ss.getSheetByName(SETTINGS.rdSheet);
+    if (rdSheet && rdSheet.getLastRow() > 1) {
+      let rdData = rdSheet.getDataRange().getValues();
+      let rdFirst = null; let rdLast = null; 
+      let rdTotalAttacks = 0; let rdTotalRespect = 0;
+      
+      let cleanId = (val) => (val === null || val === undefined) ? "" : val.toString().replace(/,/g, "").trim();
+      
+      for (let i = 1; i < rdData.length; i++) {
+        let tVal = rdData[i][2]; // Column C (Timestamp)
+        let aFac = cleanId(rdData[i][5]); // Column F (Attacker Faction ID)
+        let respect = parseFloat(rdData[i][10]) || 0; // Column K (Respect)
+        
+        if (aFac !== "" && aFac === myFactionId) {
+          rdTotalAttacks++;
+          rdTotalRespect += respect;
+          let tMs = new Date(tVal).getTime();
+          if (!isNaN(tMs)) {
+            if (rdFirst === null || tMs < rdFirst) rdFirst = tMs;
+            if (rdLast === null || tMs > rdLast) rdLast = tMs;
+          }
+        }
+      }
+      
+      const formatTornDateMs = (ms) => {
+        if (!ms) return "N/A";
+        return Utilities.formatDate(new Date(ms), "GMT", "yyyy-MM-dd HH:mm");
+      };
+      
+      if (rdTotalAttacks > 0) {
+        dashSheet.getRange("C16").setNumberFormat("@").setValue(rdFirst ? formatTornDateMs(rdFirst) : "N/A"); 
+        dashSheet.getRange("C17").setNumberFormat("@").setValue(rdLast ? formatTornDateMs(rdLast) : "N/A"); 
+        dashSheet.getRange("C18").setValue(rdTotalAttacks); 
+        dashSheet.getRange("C19").setValue(rdTotalRespect); 
+      }
+    }
+  }
+
+  // ==========================================
+  // 4. LEADERBOARDS (Avg Respect & Top Contribution)
+  // ==========================================
+  let payoutSheet = ss.getSheetByName(SETTINGS.payoutSheet);
+  if (payoutSheet && payoutSheet.getLastRow() >= 3) {
+    let pData = payoutSheet.getRange(3, 1, payoutSheet.getLastRow() - 2, 15).getValues();
+    let respectData = [];
+    let contribData = [];
+
+    for (let row of pData) {
+      let name = row[1];
+      let contrib = parseFloat(row[2]) || 0;
+      let wh = parseFloat(row[4]) || 0; // War Hits
+      let ch = parseFloat(row[8]) || 0; // Outside / Chain Hits
+      let respect = parseFloat(row[11]) || 0; // Net Respect
+      let totalHits = wh + ch;
+
+      // ---> THE FIX: Safely check for 'Totals' row and ignore it <---
+      let safeName = name ? name.toString().toLowerCase().trim() : "";
+      
+      if (safeName && !safeName.includes("left faction") && safeName !== "totals" && safeName !== "total") {
+        contribData.push({name: name, val: contrib});
+        
+        if (totalHits > 0) {
+          respectData.push({name: name, val: respect / totalHits});
+        }
+      }
+    }
+
+    // Sort descending
+    respectData.sort((a, b) => b.val - a.val);
+    contribData.sort((a, b) => b.val - a.val);
+
+    // --- Format & Print Top 4 Avg Respect per Hit ---
+    dashSheet.getRange("B21:C21").copyTo(dashSheet.getRange("H15:I15"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    dashSheet.getRange("H15").setValue("📈 Avg Respect/Hit");
+    dashSheet.getRange("I15").setValue("Avg");
+    
+    // Clear old data and stamp the B22:C22 background/format onto the entire 4-row box
+    dashSheet.getRange("H16:I19").clearContent();
+    dashSheet.getRange("B22:C22").copyTo(dashSheet.getRange("H16:I19"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+
+    let respectOutput = [];
+    for (let i = 0; i < Math.min(4, respectData.length); i++) {
+      respectOutput.push([respectData[i].name, respectData[i].val]);
+    }
+    if (respectOutput.length > 0) {
+      dashSheet.getRange(16, 8, respectOutput.length, 2).setValues(respectOutput);
+    }
+    // Re-apply correct number format in case C22's copy overwrote it
+    dashSheet.getRange("I16:I19").setNumberFormat("0.00");
+
+    // --- Format & Print Top 8 Contribution ---
+    dashSheet.getRange("B21:C21").copyTo(dashSheet.getRange("H21:I21"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    dashSheet.getRange("H21").setValue("🏆 Top Contribution");
+    dashSheet.getRange("I21").setValue("%");
+    
+    // Clear old data and stamp the B22:C22 background/format onto the entire 8-row box
+    dashSheet.getRange("H22:I29").clearContent();
+    dashSheet.getRange("B22:C22").copyTo(dashSheet.getRange("H22:I29"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+
+    let contribOutput = [];
+    for (let i = 0; i < Math.min(8, contribData.length); i++) {
+      contribOutput.push([contribData[i].name, contribData[i].val]);
+    }
+    if (contribOutput.length > 0) {
+      dashSheet.getRange(22, 8, contribOutput.length, 2).setValues(contribOutput);
+    }
+    // Re-apply correct number format in case C22's copy overwrote it
+    dashSheet.getRange("I22:I29").setNumberFormat("0.00%");
   }
 }
 
-// (Dummy script to catch broken menu links)
+// ==========================================
+// DASHBOARD BUILDER & REPAIR TOOL
+// ==========================================
 function buildDashboard() {
-  SpreadsheetApp.getUi().alert("Your dashboard layout is already built! Just use 'Refresh Dashboard' to pull the latest API data.");
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet || "Dashboard");
+  if (!dashSheet) return;
+  
+  // Total Revenue (I9) minus Final Deduction (I12)
+  dashSheet.getRange("I13").setFormula("=IFERROR(I9-I12, 0)");
+  
+  if (!dashSheet.getRange("C10").getValue()) dashSheet.getRange("C10").setValue("Ongoing");
+  
+  // Enforce formatting (I10 remains percentage, the rest remain Currency)
+  dashSheet.getRange("I9").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("I10").setNumberFormat('0%');
+  dashSheet.getRange("I11:I13").setNumberFormat('"$ "#,##0');
+  
+  dashSheet.getRange("F3:F6").setNumberFormat('#,##0');
+  dashSheet.getRange("I3:I4").setNumberFormat('#,##0');
+  dashSheet.getRange("I13").setFontWeight("bold");
+  
+  SpreadsheetApp.getUi().alert("✅ Dashboard Rebuilt with corrected Payout Math!");
 }
