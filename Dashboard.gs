@@ -635,12 +635,16 @@ function buildDashboard() {
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet || "Dashboard");
   if (!dashSheet) return;
   
+  // Fix Approved Bounties (I7)
+  dashSheet.getRange("I7").setFormula(`=IFERROR(SUMIFS('${SETTINGS.bountySheet}'!E:E, '${SETTINGS.bountySheet}'!F:F, "Approved"), 0)`);
+  
   // Total Revenue (I9) minus Final Deduction (I12)
   dashSheet.getRange("I13").setFormula("=IFERROR(I9-I12, 0)");
   
   if (!dashSheet.getRange("C10").getValue()) dashSheet.getRange("C10").setValue("Ongoing");
   
   // Enforce formatting (I10 remains percentage, the rest remain Currency)
+  dashSheet.getRange("I7").setNumberFormat('"$ "#,##0');
   dashSheet.getRange("I9").setNumberFormat('"$ "#,##0');
   dashSheet.getRange("I10").setNumberFormat('0%');
   dashSheet.getRange("I11:I13").setNumberFormat('"$ "#,##0');
@@ -649,5 +653,5 @@ function buildDashboard() {
   dashSheet.getRange("I3:I4").setNumberFormat('#,##0');
   dashSheet.getRange("I13").setFontWeight("bold");
   
-  SpreadsheetApp.getUi().alert("✅ Dashboard Rebuilt with corrected Payout Math!");
+  SpreadsheetApp.getUi().alert("✅ Dashboard Rebuilt.");
 }

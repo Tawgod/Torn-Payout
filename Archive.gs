@@ -272,3 +272,80 @@ function archiveAndResetWar() {
 
   ui.alert(`🧹 Reset Complete! Created archive sheet: ${warId} and cleared all checkboxes.`);
 }
+
+// ==========================================
+// 🧹 CLEAN SWEEP (RESET WITHOUT ARCHIVING)
+// ==========================================
+function cleanSweep() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    "🧹 CLEAN SWEEP (RESET SHEET)", 
+    "WARNING: This will permanently erase all current war/chain data, imported reports, and bounties to prep for a new payout.\n\nData will NOT be saved to the Archive.\n\nAre you sure you want to proceed?", 
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response !== ui.Button.YES) return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.toast("Sweeping old data...", "System", 3);
+
+  // 1. Clear Data Entry Tabs (Row 2 and down to preserve headers)
+  // (Uses your global SETTINGS variables, with fallback strings just in case)
+  const rdTab = (typeof SETTINGS !== 'undefined' && SETTINGS.rdSheet) ? SETTINGS.rdSheet : "RD";
+  const bountyTab = (typeof SETTINGS !== 'undefined' && SETTINGS.bountySheet) ? SETTINGS.bountySheet : "Bounties";
+  
+  const dataTabs = [rdTab, bountyTab, "Bonus", "Adjustments", "Outside Hits"]; 
+  
+  dataTabs.forEach(sheetName => {
+    let sheet = ss.getSheetByName(sheetName);
+    if (sheet && sheet.getLastRow() > 1) {
+      // Clears everything from row 2 down to the bottom
+      sheet.getRange(2, 1, sheet.getMaxRows() - 1, sheet.getMaxColumns()).clearContent();
+    }
+  });
+
+  // 2. Completely Obliterate the Generated API Reports
+  const reportTabs = ["Official War Report", "Official Chain Report"];
+  reportTabs.forEach(sheetName => {
+    let sheet = ss.getSheetByName(sheetName);
+    if (sheet) {
+      sheet.clear();
+      sheet.clearFormats();
+    }
+  });
+
+  // 3. Clear Dashboard Inputs / API Fetched Data
+  const dashSheet = ss.getSheetByName((typeof SETTINGS !== 'undefined' && SETTINGS.dashboardSheet) ? SETTINGS.dashboardSheet : "Dashboard");
+  
+  if (dashSheet) {
+    // A. Clear the specific hardcoded dashboard blocks we programmed earlier
+    const hardcodedRanges = ["C5:C7", "C10", "C16:C19", "H16:I19", "H22:I29"];
+    hardcodedRanges.forEach(rangeStr => {
+      try { dashSheet.getRange(rangeStr).clearContent(); } catch(e) {}
+    });
+
+    // B. Smart-Scan for specific labels and clear the cell to their right
+    let dashData = dashSheet.getDataRange().getValues();
+    let cellsToClear = [];
+
+    const labelsToClear = [
+      "war report id", "chain report id", "enemy faction id", "enemy faction name", 
+      "caches / items won", "est. cache value", "actual cache value", "total war hits", "war score", "termed"
+    ];
+
+    for (let r = 0; r < dashData.length; r++) {
+      for (let c = 0; c < dashData[r].length; c++) {
+        let cellText = dashData[r][c] ? dashData[r][c].toString().toLowerCase().trim() : "";
+        if (labelsToClear.includes(cellText)) {
+          // Push the cell immediately to the right of the found label
+          cellsToClear.push(dashSheet.getRange(r + 1, c + 2)); 
+        }
+      }
+    }
+
+    // Erase the dynamic label cells
+    cellsToClear.forEach(cell => cell.clearContent());
+  }
+
+  ui.alert("✅ Clean Sweep Complete!\n\nYour sheet is now blank and ready for a new payout.");
+}

@@ -14,6 +14,7 @@ function onOpen() {
     .addItem('10. Log War to History', 'logWarToHistory') 
     .addItem('11. ARCHIVE & RESET', 'archiveAndResetWar') 
     .addItem('🧪 Test Archive (No Reset)', 'testArchiveOnly')
+    .addItem('🧹 Clean Sweep (Reset Sheet)', 'cleanSweep')
     .addSeparator()
     .addItem('🔍 Run Auto-Auditor', 'runPayoutAudit') 
     .addItem('🎯 Run Sniper Audit (Check missing hits)', 'runSniperAudit') // <-- NEW: Player-specific debugger
