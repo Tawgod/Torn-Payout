@@ -259,7 +259,7 @@ function fetchOfficialReports() {
 
           if (cr.members) {
             for (let m in cr.members) {
-              if (!combinedStats[m]) combinedStats[m] = { attacks: 0, respect: 0, leave: 0, mug: 0, hosp: 0, assist: 0, overseas: 0, draw: 0, escape: 0, loss: 0 };
+              if (!combinedStats[m]) combinedStats[m] = { attacks: 0, respect: 0, leave: 0, mug: 0, hosp: 0, assist: 0, overseas: 0, draw: 0, escape: 0, loss: 0, retal: 0 };
               let mem = cr.members[m];
               combinedStats[m].attacks += mem.attacks || 0;
               combinedStats[m].respect += mem.respect || 0;
@@ -271,6 +271,7 @@ function fetchOfficialReports() {
               combinedStats[m].draw += mem.draw || 0;
               combinedStats[m].escape += mem.escape || 0;
               combinedStats[m].loss += mem.loss || 0;
+              combinedStats[m].retal += mem.retal || 0; 
               
               finalChainHits += mem.attacks || 0;
             }
@@ -287,6 +288,25 @@ function fetchOfficialReports() {
       finalChainStart = formatTornDate(firstStart);
       finalChainEnd = formatTornDate(lastEnd);
 
+      // ---> THE FIX: Cleanse the API's 'Total Respect Generated' display by subtracting Chain Bonuses
+      let rdSheetForBonus = ss.getSheetByName(SETTINGS.rdSheet || "RD");
+      if (rdSheetForBonus && rdSheetForBonus.getLastRow() > 1) {
+        let rdData = rdSheetForBonus.getDataRange().getValues();
+        let totalBonusRespectToStrip = 0;
+        for (let i = 1; i < rdData.length; i++) {
+          let aFac = rdData[i][5] ? rdData[i][5].toString().replace(/,/g, "").trim() : "";
+          if (aFac === rawConfigFactionId) {
+            let respect = parseFloat(rdData[i][10]) || 0;
+            let cBonus = parseFloat(rdData[i][16]) || 1;
+            if (cBonus > 1) {
+               totalBonusRespectToStrip += (respect - (respect / cBonus));
+            }
+          }
+        }
+        finalChainRespect -= totalBonusRespectToStrip;
+        if (finalChainRespect < 0) finalChainRespect = 0;
+      }
+
       let output = [];
       output.push(["⛓️ OFFICIAL CHAIN REPORT", ""]);
       output.push(["Chain ID(s)", chainIds.join(", ")]);
@@ -297,19 +317,20 @@ function fetchOfficialReports() {
       output.push(["", ""]);
       
       let memberRows = [];
-      memberRows.push(["Member ID", "Total Attacks", "Respect", "Leave", "Mug", "Hosp", "Assist", "Overseas", "Draw", "Escape", "Loss"]);
+      memberRows.push(["Member ID", "Total Attacks", "Respect", "Leave", "Mug", "Hosp", "Assist", "Overseas", "Draw", "Escape", "Loss", "Retal"]);
       
       if (apiErrorFlag && Object.keys(combinedStats).length === 0) {
-        memberRows.push(["API ERROR:", "Torn hid member data.", "", "", "", "", "", "", "", "", ""]);
+        memberRows.push(["API ERROR:", "Torn hid member data.", "", "", "", "", "", "", "", "", "", ""]);
       } else {
         for (let m in combinedStats) {
           let mem = combinedStats[m];
-          memberRows.push([m, mem.attacks, mem.respect, mem.leave, mem.mug, mem.hosp, mem.assist, mem.overseas, mem.draw, mem.escape, mem.loss]);
+          memberRows.push([m, mem.attacks, mem.respect, mem.leave, mem.mug, mem.hosp, mem.assist, mem.overseas, mem.draw, mem.escape, mem.loss, mem.retal]);
         }
       }
       
       output = output.concat(memberRows);
-      const maxColsChain = 11;
+      
+      const maxColsChain = 12;
       for (let r = 0; r < output.length; r++) { while (output[r].length < maxColsChain) { output[r].push(""); } }
       
       chainSheet.getRange(1, 1, output.length, maxColsChain).setValues(output);
@@ -334,10 +355,14 @@ function fetchOfficialReports() {
         let tVal = rdData[i][2]; // Column C (Timestamp)
         let aFac = cleanId(rdData[i][5]); // Column F (Attacker Faction ID)
         let respect = parseFloat(rdData[i][10]) || 0; // Column K (Respect)
+        let cBonus = parseFloat(rdData[i][16]) || 1; // Column Q (Chain Bonus)
         
+        // Strip the Chain Bonus mathematically 
+        let adjRespect = respect / (cBonus > 1 ? cBonus : 1);
+
         if (aFac !== "" && aFac === rawConfigFactionId) {
           rdTotalAttacks++;
-          rdTotalRespect += respect;
+          rdTotalRespect += adjRespect;
           let tMs = new Date(tVal).getTime();
           if (!isNaN(tMs)) {
             if (rdFirst === null || tMs < rdFirst) rdFirst = tMs;
@@ -506,10 +531,29 @@ function refreshDashboard() {
     let b6 = oChainSheet.getRange("B6").getValue();
 
     if (b3 !== "" && b3 !== "N/A" && b5 !== "") {
+      
+      // ---> THE FIX: Cleanse the "Total Respect" display if hitting Refresh manually
+      let displayRespect = parseFloat(b6) || 0;
+      let rdSheetForAdjust = ss.getSheetByName(SETTINGS.rdSheet || "RD");
+      if (rdSheetForAdjust && rdSheetForAdjust.getLastRow() > 1) {
+        let rdData = rdSheetForAdjust.getDataRange().getValues();
+        for (let r = 1; r < rdData.length; r++) {
+          let aFac = rdData[r][5] ? rdData[r][5].toString().replace(/,/g, "").trim() : "";
+          if (aFac === myFactionId) {
+            let respect = parseFloat(rdData[r][10]) || 0;
+            let cBonus = parseFloat(rdData[r][16]) || 1;
+            if (cBonus > 1) {
+              displayRespect -= (respect - (respect / cBonus));
+            }
+          }
+        }
+      }
+      if (displayRespect < 0) displayRespect = 0;
+
       dashSheet.getRange("C16").setNumberFormat("@").setValue(b3);
       dashSheet.getRange("C17").setNumberFormat("@").setValue(b4);
       dashSheet.getRange("C18").setValue(b5);
-      dashSheet.getRange("C19").setValue(b6);
+      dashSheet.getRange("C19").setValue(displayRespect);
       chainInsightsSet = true;
     }
   }
@@ -528,10 +572,13 @@ function refreshDashboard() {
         let tVal = rdData[i][2]; // Column C (Timestamp)
         let aFac = cleanId(rdData[i][5]); // Column F (Attacker Faction ID)
         let respect = parseFloat(rdData[i][10]) || 0; // Column K (Respect)
+        let cBonus = parseFloat(rdData[i][16]) || 1; // Column Q (Chain Bonus)
         
+        let adjRespect = respect / (cBonus > 1 ? cBonus : 1);
+
         if (aFac !== "" && aFac === myFactionId) {
           rdTotalAttacks++;
-          rdTotalRespect += respect;
+          rdTotalRespect += adjRespect;
           let tMs = new Date(tVal).getTime();
           if (!isNaN(tMs)) {
             if (rdFirst === null || tMs < rdFirst) rdFirst = tMs;
@@ -641,7 +688,7 @@ function refreshDashboard() {
       }
     }
     
-    // ---> THE FIX: Ascending Order (Smallest milestones at the top: 10, 25, 50, etc.)
+    // Ascending Order (Smallest milestones at the top: 10, 25, 50, etc.)
     bonusDataList.sort((a, b) => a.val - b.val);
   }
 
