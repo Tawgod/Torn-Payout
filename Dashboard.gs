@@ -571,7 +571,6 @@ function refreshDashboard() {
       let respect = parseFloat(row[11]) || 0; // Net Respect
       let totalHits = wh + ch;
 
-      // ---> THE FIX: Safely check for 'Totals' row and ignore it <---
       let safeName = name ? name.toString().toLowerCase().trim() : "";
       
       if (safeName && !safeName.includes("left faction") && safeName !== "totals" && safeName !== "total") {
@@ -583,7 +582,6 @@ function refreshDashboard() {
       }
     }
 
-    // Sort descending
     respectData.sort((a, b) => b.val - a.val);
     contribData.sort((a, b) => b.val - a.val);
 
@@ -592,7 +590,6 @@ function refreshDashboard() {
     dashSheet.getRange("H15").setValue("📈 Avg Respect/Hit");
     dashSheet.getRange("I15").setValue("Avg");
     
-    // Clear old data and stamp the B22:C22 background/format onto the entire 4-row box
     dashSheet.getRange("H16:I19").clearContent();
     dashSheet.getRange("B22:C22").copyTo(dashSheet.getRange("H16:I19"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
 
@@ -603,7 +600,6 @@ function refreshDashboard() {
     if (respectOutput.length > 0) {
       dashSheet.getRange(16, 8, respectOutput.length, 2).setValues(respectOutput);
     }
-    // Re-apply correct number format in case C22's copy overwrote it
     dashSheet.getRange("I16:I19").setNumberFormat("0.00");
 
     // --- Format & Print Top 8 Contribution ---
@@ -611,7 +607,6 @@ function refreshDashboard() {
     dashSheet.getRange("H21").setValue("🏆 Top Contribution");
     dashSheet.getRange("I21").setValue("%");
     
-    // Clear old data and stamp the B22:C22 background/format onto the entire 8-row box
     dashSheet.getRange("H22:I29").clearContent();
     dashSheet.getRange("B22:C22").copyTo(dashSheet.getRange("H22:I29"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
 
@@ -622,9 +617,55 @@ function refreshDashboard() {
     if (contribOutput.length > 0) {
       dashSheet.getRange(22, 8, contribOutput.length, 2).setValues(contribOutput);
     }
-    // Re-apply correct number format in case C22's copy overwrote it
     dashSheet.getRange("I22:I29").setNumberFormat("0.00%");
   }
+
+  // ==========================================
+  // 5. BONUS CHAIN HITS LEADERBOARD (K15:L28)
+  // ==========================================
+  let rdSheetBonus = ss.getSheetByName(SETTINGS.rdSheet || "RD");
+  let bonusDataList = [];
+  
+  if (rdSheetBonus && rdSheetBonus.getLastRow() > 1) {
+    let rdBonusData = rdSheetBonus.getDataRange().getValues();
+
+    for (let r = 1; r < rdBonusData.length; r++) {
+      let aFac = rdBonusData[r][5] ? rdBonusData[r][5].toString().replace(/,/g, "").trim() : "";
+      let aName = rdBonusData[r][4] ? rdBonusData[r][4].toString().trim() : "Unknown";
+      
+      // Index 16 correlates to Column Q (Chain Bonus)
+      let cBonus = parseFloat(rdBonusData[r][16]) || 0; 
+
+      if (aFac === myFactionId && cBonus >= 10) {
+        bonusDataList.push({name: aName, val: cBonus});
+      }
+    }
+    
+    // ---> THE FIX: Ascending Order (Smallest milestones at the top: 10, 25, 50, etc.)
+    bonusDataList.sort((a, b) => a.val - b.val);
+  }
+
+  // --- Format & Print Top 13 Bonus Chain Hits ---
+  dashSheet.getRange("B21:C21").copyTo(dashSheet.getRange("K15:L15"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  dashSheet.getRange("K15").setValue("🎯 Bonus Chain Hits");
+  dashSheet.getRange("L15").setValue("Bonus");
+
+  // Clear old data and stamp the formatting onto a 13-row box (K16 through L28)
+  dashSheet.getRange("K16:L28").clearContent();
+  dashSheet.getRange("B22:C22").copyTo(dashSheet.getRange("K16:L28"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+
+  let bonusOutput = [];
+  // Print up to 13 hits (10, 25, 50, 100, 250, 500, 1k, 2.5k, 5k, 10k, 25k, 50k, 100k)
+  for (let i = 0; i < Math.min(13, bonusDataList.length); i++) {
+    bonusOutput.push([bonusDataList[i].name, bonusDataList[i].val]);
+  }
+  
+  if (bonusOutput.length > 0) {
+    dashSheet.getRange(16, 11, bonusOutput.length, 2).setValues(bonusOutput); // K=11, L=12
+  }
+  
+  // Format the bonus numbers so they have commas (e.g., 10,000 instead of 10000)
+  dashSheet.getRange("L16:L28").setNumberFormat("#,##0");
 }
 
 // ==========================================
@@ -653,5 +694,5 @@ function buildDashboard() {
   dashSheet.getRange("I3:I4").setNumberFormat('#,##0');
   dashSheet.getRange("I13").setFontWeight("bold");
   
-  SpreadsheetApp.getUi().alert("✅ Dashboard Rebuilt.");
+  SpreadsheetApp.getUi().alert("✅ Dashboard Rebuilt with corrected Payout Math!");
 }
