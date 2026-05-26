@@ -1,5 +1,5 @@
 // ==========================================
-// PAYOUT MATH (Chronological Timeline Engine)
+// PAYOUT MATH (Strict Official Report Engine)
 // ==========================================
 function runPayoutMath() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -42,7 +42,6 @@ function runPayoutMath() {
     }
   }
 
-  // Allow "Chain-Only" runs by bypassing the hard-stop if no enemy ID is found
   if (!targetFactionId) {
     ss.toast("No Enemy Faction ID found. Running in Chain-Only mode (War stats ignored).", "Notice", 4);
   }
@@ -53,7 +52,9 @@ function runPayoutMath() {
   payoutSheet.getRange(3, 5, lastPayoutRow - 2, 10).clearContent();
   let stats = {};
 
-  // --- 3. LOAD OFFICIAL BASELINE TOTALS ---
+  // --- 3. EXCLUSIVELY LOAD OFFICIAL BASELINE TOTALS ---
+  
+  // A. Parse Official War Report for War Hits (wh) & Score (ws)
   if (officialWarSheet) {
     const warData = officialWarSheet.getDataRange().getValues();
     let startRow = -1;
@@ -73,7 +74,10 @@ function runPayoutMath() {
     }
   }
 
-  if (officialChainSheet) {
+  // B. Parse Official Chain Report for Outside Hits (ch), Respect (res), and Assists (wa)
+  let officialChainSheetUsed = false;
+  if (officialChainSheet && officialChainSheet.getLastRow() > 6) {
+    officialChainSheetUsed = true;
     const chainData = officialChainSheet.getDataRange().getValues();
     let startRow = -1;
     for(let i = 0; i < chainData.length; i++) {
@@ -85,148 +89,111 @@ function runPayoutMath() {
         if (memId === "" || memId === "API ERROR:") continue;
         if (!stats[memId]) stats[memId] = { name: `ID: ${memId}`, wh: 0, wa: 0, wl: 0, wi: 0, ch: 0, cs: 0, ret: 0, res: 0, abr: 0, ws: 0 };
         let s = stats[memId];
-        s.res += parseFloat(chainData[i][2]) || 0;
-        s.wa += parseInt(chainData[i][6]) || 0; 
-        s.abr += parseInt(chainData[i][7]) || 0;
-        let success = (parseInt(chainData[i][3]) || 0) + (parseInt(chainData[i][4]) || 0) + (parseInt(chainData[i][5]) || 0);
-        s.ch += Math.max(0, success - s.wh);
+        
+        s.res += parseFloat(chainData[i][2]) || 0; // Total Chain Respect
+        s.wa += parseInt(chainData[i][6]) || 0;    // Assists
+        s.abr += parseInt(chainData[i][7]) || 0;   // Abroad
+        
+        // OUTSIDE HITS CALC: (Total Successful Chain Hits) minus (Official War Hits)
+        // This permanently eliminates ghost hits, as it strictly binds to the Official Chain Report limit.
+        let chainSuccesses = (parseInt(chainData[i][3]) || 0) + (parseInt(chainData[i][4]) || 0) + (parseInt(chainData[i][5]) || 0);
+        s.ch += Math.max(0, chainSuccesses - s.wh); 
       }
     }
   }
 
-  // --- 4. CHRONOLOGICAL TIMELINE ENGINE ---
+  // --- 4. ADVANCED RD PARSING (For Saves, Retals, Losses, and Respect Corrections) ---
   if (rdSheet) {
     let rdData = rdSheet.getDataRange().getValues();
     
-    // RD Column Indices (0-based)
+    // RD Column Indices
     let tCol = 2; let aIdCol = 3; let aNameCol = 4; let aFacCol = 5; 
-    let dIdCol = 6; let dFacCol = 8;
-    let resltCol = 9; let resCol = 10; let retCol = 13; let cBonusCol = 16; 
+    let dIdCol = 6; let dFacCol = 8; let resltCol = 9; let resCol = 10; 
+    let retCol = 13; let cBonusCol = 16; 
 
     let rdEvents = [];
 
-    // Phase A: Extraction
+    // Extract raw events
     for (let i = 1; i < rdData.length; i++) {
       let attackerId = cleanId(rdData[i][aIdCol]);
       let aFac = cleanId(rdData[i][aFacCol]);
-      let aName = safeStr(rdData[i][aNameCol]);
-      let defenderId = cleanId(rdData[i][dIdCol]);
-      let dFac = cleanId(rdData[i][dFacCol]);
-      
-      let result = safeStr(rdData[i][resltCol]).toLowerCase();
-      let respect = parseFloat(rdData[i][resCol]) || 0;
-      let timestamp = new Date(rdData[i][tCol]).getTime();
-      let retMult = parseFloat(rdData[i][retCol]) || 1;
-      let cBonus = parseFloat(rdData[i][cBonusCol]) || 1; 
-
-      // Initialize Attacker if they are in our faction
-      if (attackerId !== "" && aFac === myFactionId) {
-        if (!stats[attackerId]) stats[attackerId] = { name: aName || `ID: ${attackerId}`, wh: 0, wa: 0, wl: 0, wi: 0, ch: 0, cs: 0, ret: 0, res: 0, abr: 0, ws: 0 };
+      if (attackerId !== "" && aFac === myFactionId && !stats[attackerId]) {
+        stats[attackerId] = { name: safeStr(rdData[i][aNameCol]) || `ID: ${attackerId}`, wh: 0, wa: 0, wl: 0, wi: 0, ch: 0, cs: 0, ret: 0, res: 0, abr: 0, ws: 0 };
       }
-
-      let isLoss = false, isWarHit = false, isRetal = false, isChainHit = false, savesChain = false, isInterrupted = false;
-      let bonusRes = 0;
-
-      // Classify Our Attacks
-      if (aFac === myFactionId) {
-        // Enforce targetFactionId requirement to prevent empty string matches
-        if (targetFactionId !== "" && dFac === targetFactionId) {
-          if (result.includes("lost") || result.includes("escape") || result.includes("draw") || result.includes("timeout") || result.includes("stalemate")) {
-            isLoss = true;
-          } else {
-            isWarHit = true;
-            if (retMult > 1) isRetal = true; // WAR RETAL IDENTIFIED
-          }
-        }
-        if (respect > 0 && !isWarHit && !isLoss) isChainHit = true;
-        if (respect > 0 && !isNaN(timestamp)) savesChain = true;
-        
-        // Calculate the exact amount of respect generated by the Chain Bonus Multiplier
-        if (cBonus > 1) {
-          bonusRes = respect - (respect / cBonus);
-        }
-      }
-
-      // Classify Enemy "Interrupted" Status (Only runs if a target faction is set)
-      if (targetFactionId !== "" && aFac === targetFactionId && result.includes("interrupted")) {
-        isInterrupted = true;
-      }
-
       rdEvents.push({
-        time: timestamp, aId: attackerId, aFac: aFac, dId: defenderId, dFac: dFac, result: result,
-        isWarHit: isWarHit, isLoss: isLoss, isRetal: isRetal, isChainHit: isChainHit, savesChain: savesChain, isInterrupted: isInterrupted,
-        bonusRes: bonusRes
+        time: new Date(rdData[i][tCol]).getTime(),
+        aId: attackerId, aFac: aFac, 
+        dId: cleanId(rdData[i][dIdCol]), dFac: cleanId(rdData[i][dFacCol]), 
+        result: safeStr(rdData[i][resltCol]).toLowerCase(), 
+        respect: parseFloat(rdData[i][resCol]) || 0,
+        retMult: parseFloat(rdData[i][retCol]) || 1,
+        cBonus: parseFloat(rdData[i][cBonusCol]) || 1
       });
     }
 
-    // Phase B: Reverse Trimmer (Find the Overage Cutoff Timestamp)
+    // A. Identify Global Hit Limit Cutoff Timestamp
     let totalOfficialHits = 0;
     for (let id in stats) { totalOfficialHits += stats[id].wh + stats[id].ch; }
-    
     let hitsToRemove = totalOfficialHits - globalHitLimit;
     let cutoffTimestamp = Infinity; 
 
     if (hitsToRemove > 0) {
       rdEvents.sort((a, b) => b.time - a.time); // Newest to Oldest
-
-      for (let event of rdEvents) {
-        if (hitsToRemove <= 0) {
-          cutoffTimestamp = event.time; 
-          break;
-        }
-        let isSuccess = event.isWarHit || event.isChainHit;
-        if (isSuccess && stats[event.aId]) {
-          if (event.isWarHit && stats[event.aId].wh > 0) { stats[event.aId].wh--; hitsToRemove--; } 
-          else if (event.isChainHit && stats[event.aId].ch > 0) { stats[event.aId].ch--; hitsToRemove--; } 
-          else if (stats[event.aId].ch > 0) { stats[event.aId].ch--; hitsToRemove--; } 
-          else if (stats[event.aId].wh > 0) { stats[event.aId].wh--; hitsToRemove--; }
+      for (let e of rdEvents) {
+        if (hitsToRemove <= 0) { cutoffTimestamp = e.time; break; }
+        if (e.aFac === myFactionId && e.respect > 0 && stats[e.aId]) {
+          let isWarHit = (targetFactionId !== "" && e.dFac === targetFactionId);
+          if (isWarHit && stats[e.aId].wh > 0) { stats[e.aId].wh--; hitsToRemove--; } 
+          else if (!isWarHit && stats[e.aId].ch > 0) { stats[e.aId].ch--; hitsToRemove--; } 
         }
       }
     }
 
-    // Phase C: Chronological Processing (Losses, Retals, Interruptions, and Base Respect Reversion)
+    // B. Chronological Processing
     rdEvents.sort((a, b) => a.time - b.time); // Oldest to Newest
     let pendingInterrupts = {};
     let validHitsForSaves = [];
 
-    for (let event of rdEvents) {
-      if (event.time > cutoffTimestamp) continue; // Freeze logic at the hit limit
+    for (let e of rdEvents) {
+      if (e.time > cutoffTimestamp) continue; // Ignore anything past the hit limit
 
-      // Track Losses & Retals & Adjust Respect
-      if (event.aFac === myFactionId && stats[event.aId]) {
-        if (event.isLoss) stats[event.aId].wl += 1;
-        if (event.isRetal) stats[event.aId].ret += 1;
-        if (event.savesChain) validHitsForSaves.push(event);
-        
-        // Deduct Chain Bonus Respect from valid hits to reveal True Base Respect
-        if ((event.isWarHit || event.isChainHit) && event.bonusRes > 0) {
-            stats[event.aId].res -= event.bonusRes;
-            if (stats[event.aId].res < 0) stats[event.aId].res = 0; // Sanity check
+      if (e.aFac === myFactionId && stats[e.aId]) {
+        // Track Chain Saves timeline
+        if (e.respect > 0 && !isNaN(e.time)) validHitsForSaves.push(e);
+
+        // Deduct Milestone Chain Bonuses to reveal True Base Respect
+        if (e.respect > 0 && e.cBonus > 1) {
+          stats[e.aId].res -= (e.respect - (e.respect / e.cBonus));
+          if (stats[e.aId].res < 0) stats[e.aId].res = 0;
+        }
+
+        // War Losses & Retals
+        if (targetFactionId !== "" && e.dFac === targetFactionId) {
+          if (e.result.includes("lost") || e.result.includes("escape") || e.result.includes("draw") || e.result.includes("timeout") || e.result.includes("stalemate")) {
+            stats[e.aId].wl += 1;
+          } else if (e.retMult > 1) {
+            stats[e.aId].ret += 1;
+          }
         }
       }
 
-      // Track Interruption "Tags"
-      if (event.isInterrupted) {
-        pendingInterrupts[event.aId] = true; // Enemy Attacker gets "Tagged"
-      }
-
-      // Cash in the Interruption "Tag" (Only processes if War Mode is active)
-      if (targetFactionId !== "" && event.aFac === myFactionId && event.dFac === targetFactionId) {
-        if (pendingInterrupts[event.dId]) {
-          if (event.result.includes("hospitalized") || event.result.includes("attacked") || event.result.includes("mugged")) {
-            if (stats[event.aId]) {
-              stats[event.aId].wi += 1; // Our Attacker gets the point!
-            }
-            pendingInterrupts[event.dId] = false; // Tag Removed
+      // Enemy Interruptions
+      if (targetFactionId !== "") {
+        if (e.aFac === targetFactionId && e.result.includes("interrupted")) {
+          pendingInterrupts[e.aId] = true; 
+        }
+        if (e.aFac === myFactionId && e.dFac === targetFactionId && pendingInterrupts[e.dId]) {
+          if (e.result.includes("hospitalized") || e.result.includes("attacked") || e.result.includes("mugged")) {
+            if (stats[e.aId]) stats[e.aId].wi += 1; 
+            pendingInterrupts[e.dId] = false; 
           }
         }
       }
     }
 
-    // Phase D: Chain Saves Logic
+    // C. Chain Saves Math
     let timeRemainingSeconds = 180; 
     let cleanStr = limitStr.replace(/[^\d.:]/g, '');
-
     let parts = cleanStr.split(":");
     if (parts.length === 3) {
       let h = parseInt(parts[0], 10) || 0; let m = parseInt(parts[1], 10) || 0; let s = parseInt(parts[2], 10) || 0;
@@ -250,7 +217,7 @@ function runPayoutMath() {
     }
   }
 
-  // ---> 5. OUTPUT & ENFORCE SUB-LIMITS WITH OVERFLOW <---
+  // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
   for (let id in stats) {
     if (stats[id].wh > personalWarLimit) {
       let overflowHits = stats[id].wh - personalWarLimit;
@@ -262,6 +229,7 @@ function runPayoutMath() {
     }
   }
 
+  // --- 6. OUTPUT & "LEFT FACTION" INJECTION ---
   const output = existingIds.map(id => {
     let s = stats[id] || { wh: 0, wa: 0, wl: 0, wi: 0, ch: 0, cs: 0, ret: 0, res: 0, abr: 0, ws: 0 };
     return [s.wh, s.wa, s.wl, s.wi, s.ch, s.cs, s.ret, s.res, s.abr, s.ws];
@@ -269,7 +237,6 @@ function runPayoutMath() {
 
   if (output.length > 0) payoutSheet.getRange(3, 5, output.length, 10).setValues(output);
   
-  // --- 6. INJECT "LEFT FACTION" PLAYERS & ANCHORED FORMULAS ---
   let missingPlayers = [];
   let missingStats = [];
   
@@ -290,7 +257,6 @@ function runPayoutMath() {
 
     if (payoutSheet.getLastRow() >= 3) {
       let r1c1Formulas = payoutSheet.getRange(3, 1, 1, maxCols).getFormulasR1C1()[0];
-
       for (let c = 0; c < maxCols; c++) {
         let isRawDataCol = (c === 0 || c === 1 || (c >= 4 && c <= 13));
         if (!isRawDataCol && r1c1Formulas[c] !== "") {
@@ -302,9 +268,8 @@ function runPayoutMath() {
     }
   }
 
-  // Adjust toast message based on mode
   let finalMsg = targetFactionId 
-    ? "Payout calculated! Adjusted to strictly count Base Respect." 
+    ? "Payout calculated! Outside Hits mapped directly to Official Chain Report." 
     : "Chain-Only Payout calculated! (Base Respect Adjusted)";
   ss.toast(finalMsg, "Success", 5);
 }
