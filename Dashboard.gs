@@ -717,6 +717,17 @@ function refreshDashboard() {
   // Format the bonus numbers so they have commas
   dashSheet.getRange(16, 12, numBonusHits, 1).setNumberFormat("#,##0");
 
+// ==========================================
+  // RESTORE STATIC LEADERBOARD FORMULAS
+  // ==========================================
+  // This ensures the queries always exist and map to the correct Payout sheet, 
+  // even if the sheet was missing during the initial build, without wiping data.
+  let targetPayoutSheet = (typeof SETTINGS !== "undefined" && SETTINGS.payoutSheet) ? SETTINGS.payoutSheet : "Payouts";
+  
+  dashSheet.getRange("B22").setFormula(`=IFERROR(QUERY('${targetPayoutSheet}'!B3:E, "SELECT B, E WHERE E > 0 ORDER BY E DESC LIMIT 3", 0), "")`);
+  dashSheet.getRange("B27").setFormula(`=IFERROR(QUERY('${targetPayoutSheet}'!B3:L, "SELECT B, L WHERE L > 0 ORDER BY L DESC LIMIT 3", 0), "")`);
+  dashSheet.getRange("E22").setFormula(`=IFERROR(QUERY('${targetPayoutSheet}'!B3:I, "SELECT B, I WHERE I > 0 ORDER BY I DESC LIMIT 3", 0), "")`);
+
   // ==========================================
   // TOP CHAIN SAVES (PULLED FROM PAYOUT TAB)
   // ==========================================
