@@ -26,6 +26,14 @@ function runPayoutMath() {
   const personalWarLimit = parseInt(dashSheet.getRange("F4").getValue()) || 999999;
   const personalChainLimit = parseInt(dashSheet.getRange("F5").getValue()) || 999999;
 
+  // ---> NEW: Post-War Outside Hits Toggle Logic <---
+  const payOutsideHitsAfterWar = dashSheet.getRange("F6").getValue().toString().toLowerCase() !== "no";
+  let warEndTs = Infinity;
+  let warEndStr = safeStr(dashSheet.getRange("C6").getValue()); 
+  if (warEndStr && warEndStr !== "Ongoing" && warEndStr !== "Finished" && warEndStr !== "N/A" && warEndStr !== "") {
+      warEndTs = new Date(warEndStr + " UTC").getTime(); // Torn runs on UTC/GMT
+  }
+
   let dashData = dashSheet.getDataRange().getValues();
   let targetFactionId = "";
   let limitStr = "3:00"; 
@@ -153,9 +161,17 @@ function runPayoutMath() {
     rdEvents.sort((a, b) => a.time - b.time); // Oldest to Newest
     let pendingInterrupts = {};
     let validHitsForSaves = [];
-
+    
     for (let e of rdEvents) {
       if (e.time > cutoffTimestamp) continue; // Ignore anything past the hit limit
+
+      // ---> NEW: Deduct post-war outside hits if toggle is "No" <---
+      if (!payOutsideHitsAfterWar && e.time > warEndTs && e.aFac === myFactionId && e.dFac !== targetFactionId) {
+          let isSuccess = e.result.includes("hosp") || e.result.includes("mug") || e.result.includes("left") || e.result.includes("leave") || e.respect > 0;
+          if (isSuccess && stats[e.aId] && stats[e.aId].ch > 0) {
+              stats[e.aId].ch -= 1; // Safely deduct the outside hit 
+          }
+      }
 
       if (e.aFac === myFactionId && stats[e.aId]) {
         // Track Chain Saves timeline

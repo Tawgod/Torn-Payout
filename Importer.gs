@@ -19,12 +19,10 @@ function importWarData() {
   }
 
   // 1. Read Time Filters from Dashboard
-  let startDateVal = dashSheet.getRange("F8").getValue();
-  let endDateVal = dashSheet.getRange("F10").getValue();
-  
-  // USE GET DISPLAY VALUE: Grabs exactly what is on the screen (e.g., "15:00:00")
-  let startTimeStr = dashSheet.getRange("F9").getDisplayValue();
-  let endTimeStr = dashSheet.getRange("F11").getDisplayValue();
+  let startDateVal = dashSheet.getRange("F9").getValue();
+  let endDateVal = dashSheet.getRange("F11").getValue();
+  let startTimeStr = dashSheet.getRange("F10").getDisplayValue();
+  let endTimeStr = dashSheet.getRange("F12").getDisplayValue();
 
   // --- IRONCLAD TIME FORCER ---
   let sd = new Date(startDateVal);
