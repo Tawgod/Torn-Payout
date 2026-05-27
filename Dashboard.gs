@@ -425,7 +425,7 @@ function refreshDashboard() {
       }
     }
     return "";
-  };
+     };
 
   const setVal = (label, value) => {
     let cleanLabel = label.toLowerCase().trim();
@@ -668,78 +668,365 @@ function refreshDashboard() {
   }
 
   // ==========================================
-  // 5. BONUS CHAIN HITS LEADERBOARD (K15:L28)
+  // 5. BONUS CHAIN HITS LEADERBOARD (DYNAMIC EXTENSION)
   // ==========================================
   let rdSheetBonus = ss.getSheetByName(SETTINGS.rdSheet || "RD");
   let bonusDataList = [];
   
   if (rdSheetBonus && rdSheetBonus.getLastRow() > 1) {
     let rdBonusData = rdSheetBonus.getDataRange().getValues();
-
     for (let r = 1; r < rdBonusData.length; r++) {
       let aFac = rdBonusData[r][5] ? rdBonusData[r][5].toString().replace(/,/g, "").trim() : "";
       let aName = rdBonusData[r][4] ? rdBonusData[r][4].toString().trim() : "Unknown";
+      let cBonus = parseFloat(rdBonusData[r][16]) || 0;
       
-      // Index 16 correlates to Column Q (Chain Bonus)
-      let cBonus = parseFloat(rdBonusData[r][16]) || 0; 
-
       if (aFac === myFactionId && cBonus >= 10) {
         bonusDataList.push({name: aName, val: cBonus});
       }
     }
-    
-    // Ascending Order (Smallest milestones at the top: 10, 25, 50, etc.)
+    // Sort Ascending (10, 25, 50, etc.)
     bonusDataList.sort((a, b) => a.val - b.val);
   }
 
-  // --- Format & Print Top 13 Bonus Chain Hits ---
+  // --- Format & Print Dynamic Leaderboard ---
   dashSheet.getRange("B21:C21").copyTo(dashSheet.getRange("K15:L15"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
   dashSheet.getRange("K15").setValue("🎯 Bonus Chain Hits");
   dashSheet.getRange("L15").setValue("Bonus");
 
-  // Clear old data and stamp the formatting onto a 13-row box (K16 through L28)
-  dashSheet.getRange("K16:L28").clearContent();
-  dashSheet.getRange("B22:C22").copyTo(dashSheet.getRange("K16:L28"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  // Dynamically clear old data based on however far down the sheet goes
+  let maxRows = dashSheet.getMaxRows();
+  if (maxRows >= 16) {
+    dashSheet.getRange(16, 11, maxRows - 15, 2).clearContent().clearFormat();
+  }
+
+  let numBonusHits = Math.max(1, bonusDataList.length);
+  let targetRange = dashSheet.getRange(16, 11, numBonusHits, 2);
+  
+  // Stamp the template formatting onto the newly sized box
+  dashSheet.getRange("B22:C22").copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
 
   let bonusOutput = [];
-  // Print up to 13 hits (10, 25, 50, 100, 250, 500, 1k, 2.5k, 5k, 10k, 25k, 50k, 100k)
-  for (let i = 0; i < Math.min(13, bonusDataList.length); i++) {
+  for (let i = 0; i < bonusDataList.length; i++) {
     bonusOutput.push([bonusDataList[i].name, bonusDataList[i].val]);
   }
   
   if (bonusOutput.length > 0) {
-    dashSheet.getRange(16, 11, bonusOutput.length, 2).setValues(bonusOutput); // K=11, L=12
+    targetRange.setValues(bonusOutput);
   }
   
-  // Format the bonus numbers so they have commas (e.g., 10,000 instead of 10000)
-  dashSheet.getRange("L16:L28").setNumberFormat("#,##0");
-}
+  // Format the bonus numbers so they have commas
+  dashSheet.getRange(16, 12, numBonusHits, 1).setNumberFormat("#,##0");
 
+  // ==========================================
+  // TOP CHAIN SAVES (PULLED FROM PAYOUT TAB)
+  // ==========================================
+  let payoutSheetForSaves = ss.getSheetByName(SETTINGS.payoutSheet || "Payout");
+  
+  if (payoutSheetForSaves) {
+    let payoutData = payoutSheetForSaves.getDataRange().getValues();
+    let savesLeaderboard = [];
+
+    // Loop through the Payout sheet (Assuming data starts on Row 3 / Index 2)
+    for (let i = 2; i < payoutData.length; i++) {
+      let playerName = payoutData[i][1]; // Column B is Index 1 (Name)
+      let playerSaves = parseInt(payoutData[i][9]) || 0; // Column J is Index 9 (Chain Saves)
+
+      if (playerName && playerSaves > 0) {
+        savesLeaderboard.push({name: playerName, val: playerSaves});
+      }
+    }
+
+    // Sort Descending so the highest saves are at the top
+    savesLeaderboard.sort((a, b) => b.val - a.val);
+
+    // Prepare exactly 3 rows of data for E27:F29
+    let savesOutput = [];
+    for (let i = 0; i < 3; i++) {
+      if (i < savesLeaderboard.length) {
+        savesOutput.push([savesLeaderboard[i].name, savesLeaderboard[i].val]);
+      } else {
+        // If there are less than 3 people with saves, leave the remaining rows blank
+        savesOutput.push(["", ""]); 
+      }
+    }
+
+    // Print the data directly into E27:F29
+    dashSheet.getRange("E27:F29").setValues(savesOutput);
+  }
+   // Format Top Respect to exactly two decimal places
+  dashSheet.getRange("C27:C29").setNumberFormat("#,##0.00");
+}
 // ==========================================
-// DASHBOARD BUILDER & REPAIR TOOL
+// DASHBOARD BUILDER & REPAIR TOOL (1:1 Visual Replica)
 // ==========================================
 function buildDashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet || "Dashboard");
-  if (!dashSheet) return;
+  const sheetName = (typeof SETTINGS !== "undefined" && SETTINGS.dashboardSheet) ? SETTINGS.dashboardSheet : "Dashboard";
+  let dashSheet = ss.getSheetByName(sheetName);
   
-  // Fix Approved Bounties (I7)
-  dashSheet.getRange("I7").setFormula(`=IFERROR(SUMIFS('${SETTINGS.bountySheet}'!E:E, '${SETTINGS.bountySheet}'!F:F, "Approved"), 0)`);
+  if (!dashSheet) {
+    dashSheet = ss.insertSheet(sheetName);
+  } else {
+    dashSheet.clear();
+    dashSheet.clearFormats();
+    dashSheet.getRange("E7:F12").clearContent();
+  dashSheet.getRange("E7:F12").clearDataValidations();
+  }
+
+  // 1. EXACT COLUMN WIDTHS
+  dashSheet.setColumnWidth(1, 15);   // A: Left Margin
+  dashSheet.setColumnWidth(2, 170);  // B: War/Chain Labels
+  dashSheet.setColumnWidth(3, 200);  // C: War/Chain Values
+  dashSheet.setColumnWidth(4, 15);   // D: Spacer
+  dashSheet.setColumnWidth(5, 170);  // E: Filter/Report Labels
+  dashSheet.setColumnWidth(6, 170);  // F: Filter/Report Values
+  dashSheet.setColumnWidth(7, 15);   // G: Spacer
+  dashSheet.setColumnWidth(8, 170);  // H: Finance/Leaderboard Labels
+  dashSheet.setColumnWidth(9, 130);  // I: Finance/Leaderboard Values
+  dashSheet.setColumnWidth(10, 15);  // J: Spacer
+  dashSheet.setColumnWidth(11, 150); // K: Bonus Labels
+  dashSheet.setColumnWidth(12, 60);  // L: Bonus Values
+
+  // --- COLOR PALETTE ---
+  const colors = {
+    warHeader: "#cc0000", warBg: "#f4cccc",
+    chainHeader: "#3c78d8", chainBg: "#cfe2f3",
+    orangeHeader: "#e69138", orangeBg: "#fce5cd",
+    purpleHeader: "#8e7cc3", purpleBg: "#d9d2e9",
+    greenHeader: "#38761d", greenBg: "#d9ead3",
+    goldHeader: "#f1c232", goldBg: "#fff2cc",
+    valBg: "#ffffff", valText: "#000000", headerText: "#ffffff"
+  };
+
+  // Helper to build a section
+  function buildBlock(rangeStr, headerRange, title, headerColor, labelColor) {
+    let range = dashSheet.getRange(rangeStr);
+    range.setBorder(true, true, true, true, true, true);
+    dashSheet.getRange(headerRange).merge().setValue(title)
+      .setBackground(headerColor).setFontColor(colors.headerText).setFontWeight("bold");
+    
+    let rowStart = range.getRow() + 1; 
+    let rowCount = range.getNumRows() - 1;
+    let col = range.getColumn();
+    if (rowCount > 0) {
+      dashSheet.getRange(rowStart, col, rowCount, 1).setBackground(labelColor);
+      dashSheet.getRange(rowStart, col + 1, rowCount, 1).setBackground(colors.valBg);
+    }
+  }
+
+  // ==========================================
+  // LEFT COLUMN: WAR & CHAIN INSIGHTS
+  // ==========================================
+  buildBlock("B2:C13", "B2:C2", "⚔️ WAR INSIGHTS", colors.warHeader, colors.warBg);
+  const warLabels = [
+    ["Enemy Faction Name", "The Rebel Army"], 
+    ["Enemy Faction ID", "42961"],            
+    ["Official War Start", ""],               
+    ["Official War End", ""],                 
+    ["War ID", ""],                           
+    ["Total War Hits", ""],                   
+    ["War Score", ""],                        
+    ["Outcome (Result)", "Ongoing"],          
+    ["Caches / Items Won", ""],               
+    ["Est. Cache Value", ""],                 
+    ["Termed?", "No"]                         
+  ];
+  dashSheet.getRange("B3:C13").setValues(warLabels);
+  dashSheet.getRange("C11").setWrap(true); 
+
+  // FIX: Add Yes/No Dropdown to Termed? (C13)
+  const yesNoRule = SpreadsheetApp.newDataValidation().requireValueInList(["Yes", "No"], true).build();
+  dashSheet.getRange("C13").setDataValidation(yesNoRule).setHorizontalAlignment("left");
+
+  buildBlock("B15:C19", "B15:C15", "🔗 CHAIN INSIGHTS", colors.chainHeader, colors.chainBg);
+  const chainLabels = [
+    ["First Attack Logged", ""],              
+    ["Latest Attack Logged", ""],             
+    ["Total Attacks Logged", ""],             
+    ["Total Respect Generated", ""]           
+  ];
+  dashSheet.getRange("B16:C19").setValues(chainLabels);
+
+  // ==========================================
+  // MIDDLE COLUMN: FILTERS, TIME, REPORTS
+  // ==========================================
+  buildBlock("E2:F5", "E2:F2", "⚙️ PAYOUT FILTERS", colors.orangeHeader, colors.orangeBg);
+  dashSheet.getRange("E3:F5").setValues([["Total Hits (Max Limit)", ""], ["Max War Hits", ""], ["Max Chain Hits", ""]]);
+
+  // FIX: Adjusted Custom Time Window to exactly E7:F11 (Removed the blank line)
+  buildBlock("E7:F11", "E7:F7", "⏳ CUSTOM TIME WINDOW", colors.orangeHeader, colors.orangeBg);
+  dashSheet.getRange("E8:F11").setValues([
+    ["Start Date", ""], ["Start Time", ""], ["End Date", ""], ["End Time", ""]
+  ]);
+
+  buildBlock("E14:F16", "E14:F14", "📊 OFFICIAL REPORTS", colors.purpleHeader, colors.purpleBg);
+  dashSheet.getRange("E15:F16").setValues([
+    ["War Report ID", "42223"],               
+    ["Chain Report ID", ""]                   
+  ]);
+
+  buildBlock("E18:F19", "E18:F18", "⏱️ CHAIN WATCH", colors.purpleHeader, colors.purpleBg);
+  dashSheet.getRange("E19:F19").setValues([["Time Limit", "3"]]);
+
+  // ==========================================
+  // RIGHT COLUMN: WAR FINANCIALS
+  // ==========================================
+  buildBlock("H2:I13", "H2:I2", "💰 WAR FINANCIALS", colors.greenHeader, colors.greenBg);
+  const financeLabels = [
+    ["Total Revenue", "0"],                   
+    ["- Temp Cost", "0"],                     
+    ["- Revives", "0"],                       
+    ["- Xanax", "0"],                         
+    ["- Approved Bounties", "0"],             
+    ["- Other Cost", "0"],                    
+    ["NET PROFIT", "0"],                      
+    ["Faction Cut %", "6%"],                  
+    ["Max Faction Cut ($)", ""],              
+    ["Actual Faction Deduction", "0"],        
+    ["PAYOUT TOTAL", "0"]                     
+  ];
+  dashSheet.getRange("H3:I13").setValues(financeLabels);
   
-  // Total Revenue (I9) minus Final Deduction (I12)
-  dashSheet.getRange("I13").setFormula("=IFERROR(I9-I12, 0)");
-  
-  if (!dashSheet.getRange("C10").getValue()) dashSheet.getRange("C10").setValue("Ongoing");
-  
-  // Enforce formatting (I10 remains percentage, the rest remain Currency)
-  dashSheet.getRange("I7").setNumberFormat('"$ "#,##0');
-  dashSheet.getRange("I9").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("H9:I9").setFontWeight("bold");
+  dashSheet.getRange("H13:I13").setFontWeight("bold").setBackground(colors.greenBg);
+
+  let bountySheetName = (typeof SETTINGS !== "undefined" && SETTINGS.bountySheet) ? SETTINGS.bountySheet : "Bounties";
+  dashSheet.getRange("I7").setFormula(`=IFERROR(SUMIFS('${bountySheetName}'!E:E, '${bountySheetName}'!F:F, "Approved"), 0)`);
+  dashSheet.getRange("I9").setFormula("=IFERROR(I3 - SUM(I4:I8), 0)");
+  dashSheet.getRange("I12").setFormula("=IFERROR(IF(I11=\"\", I9*I10, MIN(I9*I10, I11)), 0)");
+  dashSheet.getRange("I13").setFormula("=IFERROR(I9-I12, 0)"); 
+
+  dashSheet.getRange("C12").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("I3:I9").setNumberFormat('"$ "#,##0');
   dashSheet.getRange("I10").setNumberFormat('0%');
   dashSheet.getRange("I11:I13").setNumberFormat('"$ "#,##0');
+
+  // ==========================================
+  // BOTTOM LEADERBOARDS 
+  // ==========================================
+  // Left Side (Static Queries)
+  dashSheet.getRange("B21:C21").merge().setValue("🏆 TOP WAR HITS").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("B22:C24").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
+  dashSheet.getRange("B22").setFormula(`=IFERROR(QUERY(Payouts!B3:E, "SELECT B, E WHERE E > 0 ORDER BY E DESC LIMIT 3", 0), "")`);
   
-  dashSheet.getRange("F3:F6").setNumberFormat('#,##0');
-  dashSheet.getRange("I3:I4").setNumberFormat('#,##0');
-  dashSheet.getRange("I13").setFontWeight("bold");
+  dashSheet.getRange("B26:C26").merge().setValue("⭐ TOP RESPECT").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("B27:C29").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
+  dashSheet.getRange("B27").setFormula(`=IFERROR(QUERY(Payouts!B3:L, "SELECT B, L WHERE L > 0 ORDER BY L DESC LIMIT 3", 0), "")`);
+
+  // Middle Side (Static Queries)
+  dashSheet.getRange("E21:F21").merge().setValue("🔗 TOP CHAIN HITS").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("E22:F24").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
+  dashSheet.getRange("E22").setFormula(`=IFERROR(QUERY(Payouts!B3:I, "SELECT B, I WHERE I > 0 ORDER BY I DESC LIMIT 3", 0), "")`);
+
+  dashSheet.getRange("E26:F26").merge().setValue("🛡️ TOP CHAIN SAVES").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("E27:F29").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
+
+  // FIX: Pre-drawing the Right-Side Leaderboards so they aren't completely blank
+  // Avg Respect / Hit
+  dashSheet.getRange("H15:I15").merge().setValue("☑️ Avg Respect/Hit").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("H16:I19").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
+
+  // Top Contribution
+  dashSheet.getRange("H21:I21").merge().setValue("🏆 Top Contribution").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("H22:I29").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
+
+  // Bonus Chain Hits
+  dashSheet.getRange("K15:L15").merge().setValue("🎯 Bonus Chain Hits").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("K16:L28").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
+
+  dashSheet.setHiddenGridlines(true);
   
-  SpreadsheetApp.getUi().alert("✅ Dashboard Rebuilt with corrected Payout Math!");
+  // ==========================================
+  // INJECT POST-WAR TOGGLE & SHIFT TIME WINDOW (BOX FIXES & COLOR CODING)
+  // ==========================================
+  
+  // 1. Clear the entire right area to prevent visual overlap
+  dashSheet.getRange("E6:F12").clearContent();
+  dashSheet.getRange("E6:F12").clearDataValidations();
+  dashSheet.getRange("E6:F12").breakApart(); 
+
+  // 2. Add the Toggle to Row 6 (Attached to Payout Filters)
+  dashSheet.getRange("E6").setValue("Pay Post-War Outside Hits?").setFontWeight("normal").setBackground("#f3f3f3").setFontColor("#000000");
+  dashSheet.getRange("F6").setValue("Yes").setBackground("#ffffff").setHorizontalAlignment("center").setFontColor("#000000");
+  
+  // Add the Yes/No Dropdown to F6
+  const postWarRule = SpreadsheetApp.newDataValidation().requireValueInList(["Yes", "No"], true).build();
+  dashSheet.getRange("F6").setDataValidation(postWarRule);
+
+  // 3. Re-draw the "Payout Filters" Box to include Row 6
+  dashSheet.getRange("E3:F6").setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+
+  // 4. Spacer reset: Row 7
+  dashSheet.getRange("E7:F7").clearFormat().setBackground(null); 
+  // ---> FIX: Explicitly reinforce the bottom black line on Row 6 <---
+  dashSheet.getRange("E6:F6").setBorder(null, null, true, null, null, null, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+
+  // 5. Draw the Custom Time Window Header in Row 8 
+  dashSheet.getRange("E8:F8").mergeAcross()
+    .setValue("⏳ CUSTOM TIME WINDOW")
+    .setFontWeight("bold")
+    .setHorizontalAlignment("center")
+    .setBackground("#1a73e8") // ---> NEW: Vibrant Blue to make it highly visual!
+    .setFontColor("#ffffff");
+
+  // 6. Draw the Custom Time Window Inputs in Rows 9-12
+  dashSheet.getRange("E9:E12").setValues([
+    ["Start Date"],
+    ["Start Time"],
+    ["End Date"],
+    ["End Time"]
+  ]).setFontWeight("normal").setBackground("#f3f3f3").setFontColor("#000000").setHorizontalAlignment("left");
+  
+  dashSheet.getRange("F9:F12").setBackground("#ffffff").setHorizontalAlignment("center").setFontColor("#000000");
+
+  // 7. Draw the Custom Time Window Box
+  dashSheet.getRange("E8:F12").setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+
+
+  // ==========================================
+  // NEW: AUTOMATIC SHADING FOR AUTO-FILL VS MANUAL
+  // ==========================================
+  
+  // First, shade all value boxes light gray to indicate they are "Auto-Fill / Read-Only"
+  dashSheet.getRange("C4:C7").setBackground("#e6e8eb"); // War Insights
+  dashSheet.getRange("C9:C13").setBackground("#e6e8eb"); // Chain Insights
+  
+  // Now, specifically punch out the MANUAL entry boxes and make them bright white
+  // WAR INSIGHTS: Enemy Faction ID is manual
+  dashSheet.getRange("C4").setBackground("#ffffff");
+  
+  // CHAIN INSIGHTS: Custom Limit and Termed are manual
+  dashSheet.getRange("C11").setBackground("#ffffff"); // Chain Drop Limit
+  dashSheet.getRange("C13").setBackground("#ffffff"); // Termed? Yes/No
+  
+  // PAYOUT FILTERS & TIME WINDOW: All limits/toggles are manual, make them white
+  dashSheet.getRange("F3:F6").setBackground("#ffffff"); // Hit limits + Post War toggle
+  dashSheet.getRange("F9:F12").setBackground("#ffffff"); // Time window inputs
+  
+  // ==========================================
+  // CUSTOM COLOR OVERRIDES
+  // ==========================================
+  
+  // 1. C3:C12 shaded with a light red
+  dashSheet.getRange("C3:C12").setBackground("#f4cccc"); 
+  
+  // 2. C16:C19 shaded with a light blue
+  dashSheet.getRange("C16:C19").setBackground("#c9daf8"); 
+  
+  // 3. E9:E12 shaded with a light blue
+  dashSheet.getRange("E9:E12").setBackground("#c9daf8"); 
+  
+  // 4. E6 automatically matches the color of E3
+  let colorE3 = dashSheet.getRange("E3").getBackground();
+  dashSheet.getRange("E6").setBackground(colorE3);
+  
+  // 5. I9 & I12 automatically match the color of I13
+  let colorI13 = dashSheet.getRange("I13").getBackground();
+  dashSheet.getRange("I9").setBackground(colorI13);
+  dashSheet.getRange("I12").setBackground(colorI13);
+
+  
+  if (typeof SpreadsheetApp !== "undefined" && SpreadsheetApp.getUi) {
+    SpreadsheetApp.getUi().alert("✅ Layout rebuilt! End time is corrected, Dropdown added, and all leaderboards are visually drawn.");
+  }
 }
