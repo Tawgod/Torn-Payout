@@ -861,7 +861,7 @@ function buildDashboard() {
 
   buildBlock("E14:F16", "E14:F14", "📊 OFFICIAL REPORTS", colors.purpleHeader, colors.purpleBg);
   dashSheet.getRange("E15:F16").setValues([
-    ["War Report ID", "42223"],               
+    ["War Report ID", ""],               
     ["Chain Report ID", ""]                   
   ]);
 
