@@ -10,12 +10,16 @@ function logWarToHistory() {
     return;
   }
 
-  // --- Indestructible Scanner ---
+  // --- TRULY Indestructible Scanner (Case & Space Insensitive) ---
   let allData = dashSheet.getDataRange().getValues();
   const findVal = (label) => {
+    let cleanLabel = label.toLowerCase().trim();
     for (let r = 0; r < allData.length; r++) {
       for (let c = 0; c < allData[r].length; c++) {
-        if (allData[r][c] === label && c + 1 < allData[r].length) return allData[r][c+1];
+        let currentCell = allData[r][c] ? allData[r][c].toString().toLowerCase().trim() : "";
+        if (currentCell === cleanLabel && c + 1 < allData[r].length) {
+          return allData[r][c+1];
+        }
       }
     }
     return "";

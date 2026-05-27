@@ -290,7 +290,6 @@ function cleanSweep() {
   ss.toast("Sweeping old data...", "System", 3);
 
   // 1. Clear Data Entry Tabs (Row 2 and down to preserve headers)
-  // (Uses your global SETTINGS variables, with fallback strings just in case)
   const rdTab = (typeof SETTINGS !== 'undefined' && SETTINGS.rdSheet) ? SETTINGS.rdSheet : "RD";
   const bountyTab = (typeof SETTINGS !== 'undefined' && SETTINGS.bountySheet) ? SETTINGS.bountySheet : "Bounties";
   
@@ -299,7 +298,6 @@ function cleanSweep() {
   dataTabs.forEach(sheetName => {
     let sheet = ss.getSheetByName(sheetName);
     if (sheet && sheet.getLastRow() > 1) {
-      // Clears everything from row 2 down to the bottom
       sheet.getRange(2, 1, sheet.getMaxRows() - 1, sheet.getMaxColumns()).clearContent();
     }
   });
@@ -318,8 +316,8 @@ function cleanSweep() {
   const dashSheet = ss.getSheetByName((typeof SETTINGS !== 'undefined' && SETTINGS.dashboardSheet) ? SETTINGS.dashboardSheet : "Dashboard");
   
   if (dashSheet) {
-    // A. Clear the specific hardcoded dashboard blocks we programmed earlier
-    const hardcodedRanges = ["C5:C7", "C10", "C16:C19", "H16:I19", "H22:I29"];
+    // A. Added E27:F29 (Saves) and Q16:R28 (Bonus Hits) to the wipe list
+    const hardcodedRanges = ["C5:C7", "C10", "C16:C19", "E27:F29", "H16:I19", "H22:I29", "Q16:R28"];
     hardcodedRanges.forEach(rangeStr => {
       try { dashSheet.getRange(rangeStr).clearContent(); } catch(e) {}
     });
@@ -337,14 +335,17 @@ function cleanSweep() {
       for (let c = 0; c < dashData[r].length; c++) {
         let cellText = dashData[r][c] ? dashData[r][c].toString().toLowerCase().trim() : "";
         if (labelsToClear.includes(cellText)) {
-          // Push the cell immediately to the right of the found label
           cellsToClear.push(dashSheet.getRange(r + 1, c + 2)); 
         }
       }
     }
 
-    // Erase the dynamic label cells
     cellsToClear.forEach(cell => cell.clearContent());
+  }
+
+  // 4. Trigger a rebuild to ensure standard formulas and borders remain intact
+  if (typeof buildDashboard === "function") { 
+    buildDashboard(); 
   }
 
   ui.alert("✅ Clean Sweep Complete!\n\nYour sheet is now blank and ready for a new payout.");
