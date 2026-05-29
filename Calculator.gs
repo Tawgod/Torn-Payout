@@ -21,33 +21,35 @@ function runPayoutMath() {
   const cleanId = (val) => (val === null || val === undefined) ? "" : val.toString().replace(/,/g, "").trim();
   const safeStr = (val) => (val === null || val === undefined) ? "" : val.toString().trim();
 
-  // --- 1. GET ENEMY ID & STRICT LIMITS ---
+ // --- 1. GET ENEMY ID & STRICT LIMITS ---
   const globalHitLimit = parseInt(dashSheet.getRange("F3").getValue()) || 999999;
   const personalWarLimit = parseInt(dashSheet.getRange("F4").getValue()) || 999999;
   const personalChainLimit = parseInt(dashSheet.getRange("F5").getValue()) || 999999;
-
-  // ---> NEW: Post-War Outside Hits Toggle Logic <---
   const payOutsideHitsAfterWar = dashSheet.getRange("F6").getValue().toString().toLowerCase() !== "no";
+
+  // CRITICAL FIX: Use getDisplayValues() so "2:30" stays text and doesn't break parsing
+  let dashData = dashSheet.getDataRange().getDisplayValues();
+
+  // Helper function to safely find values anywhere in the dashboard
+  const findVal = (label) => {
+      for (let r = 0; r < dashData.length; r++) {
+          for (let c = 0; c < dashData[r].length; c++) {
+              if (safeStr(dashData[r][c]).toLowerCase().includes(label.toLowerCase()) && c + 1 < dashData[r].length) {
+                  return safeStr(dashData[r][c+1]);
+              }
+          }
+      }
+      return ""; // Returns blank if the label isn't found
+  };
+
+  // Find our required limits and IDs
+  let limitStr = findVal("time limit"); // No default "3:00" fallback!
+  let targetFactionId = cleanId(findVal("enemy faction id"));
+
   let warEndTs = Infinity;
   let warEndStr = safeStr(dashSheet.getRange("C6").getValue()); 
   if (warEndStr && warEndStr !== "Ongoing" && warEndStr !== "Finished" && warEndStr !== "N/A" && warEndStr !== "") {
       warEndTs = new Date(warEndStr + " UTC").getTime(); // Torn runs on UTC/GMT
-  }
-
-  let dashData = dashSheet.getDataRange().getValues();
-  let targetFactionId = "";
-  let limitStr = "3:00"; 
-  
-  for (let r = 0; r < dashData.length; r++) {
-    for (let c = 0; c < dashData[r].length; c++) {
-      let cellText = safeStr(dashData[r][c]).toLowerCase();
-
-      if (cellText === "enemy faction id" && c + 1 < dashData[r].length) targetFactionId = cleanId(dashData[r][c+1]);
-      if (cellText.includes("chain drop limit") && c + 1 < dashData[r].length) {
-        let foundLimit = safeStr(dashData[r][c+1]);
-        if (foundLimit) limitStr = foundLimit;
-      }
-    }
   }
 
   if (!targetFactionId) {
@@ -208,30 +210,46 @@ function runPayoutMath() {
     }
 
     // C. Chain Saves Math
-    let timeRemainingSeconds = 180; 
-    let cleanStr = limitStr.replace(/[^\d.:]/g, '');
-    let parts = cleanStr.split(":");
-    if (parts.length === 3) {
-      let h = parseInt(parts[0], 10) || 0; let m = parseInt(parts[1], 10) || 0; let s = parseInt(parts[2], 10) || 0;
-      if (h > 0 && m === 0 && s === 0) timeRemainingSeconds = h * 60;
-      else timeRemainingSeconds = (h * 3600) + (m * 60) + s;
-    } else if (parts.length === 2) {
-      let m = parseInt(parts[0], 10) || 0; let s = parseInt(parts[1], 10) || 0; timeRemainingSeconds = (m * 60) + s;
-    } else if (!isNaN(parseFloat(cleanStr))) {
-      timeRemainingSeconds = parseFloat(cleanStr) * 60;
-    }
-    
-    let requiredGap = 300 - timeRemainingSeconds;
-    let lastHitTime = null;
+    // Only calculate saves if the Time Limit cell is NOT blank
+    if (limitStr !== "") {
+      let timeRemainingSeconds = 180; 
+      let cleanStr = limitStr.trim(); 
 
-    for (let hit of validHitsForSaves) {
-      if (lastHitTime !== null) {
-        let gap = (hit.time - lastHitTime) / 1000;
-        if (gap >= requiredGap && gap <= 300 && stats[hit.aId]) stats[hit.aId].cs += 1;
+      // Check if it's a simple number (like '3') or formatted time (like '3:00')
+      if (!isNaN(parseFloat(cleanStr)) && !cleanStr.includes(":")) {
+          // If user typed "3", treat as 3 minutes
+          timeRemainingSeconds = parseFloat(cleanStr) * 60;
+      } else {
+          // Handle "3:00" or "0:30" formats safely from getDisplayValues()
+          let parts = cleanStr.split(":");
+          if (parts.length === 3) {
+              let h = parseInt(parts[0], 10) || 0;
+              let m = parseInt(parts[1], 10) || 0;
+              let s = parseInt(parts[2], 10) || 0;
+              timeRemainingSeconds = (h * 3600) + (m * 60) + s;
+          } else if (parts.length === 2) {
+              let m = parseInt(parts[0], 10) || 0;
+              let s = parseInt(parts[1], 10) || 0;
+              timeRemainingSeconds = (m * 60) + s;
+          }
       }
-      lastHitTime = hit.time;
+
+      let requiredGap = 300 - timeRemainingSeconds; 
+      let lastHitTime = null;
+
+      for (let hit of validHitsForSaves) {
+        if (lastHitTime !== null) {
+          let gap = (hit.time - lastHitTime) / 1000;
+          if (gap >= requiredGap && gap <= 300 && stats[hit.aId]) {
+            stats[hit.aId].cs += 1;
+          }
+        }
+        lastHitTime = hit.time;
+      }
     }
-  }
+  } // <-- Closes the "if (rdSheet)" block
+
+  // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
 
   // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
   for (let id in stats) {
