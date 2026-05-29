@@ -249,9 +249,7 @@ function runPayoutMath() {
     }
   } // <-- Closes the "if (rdSheet)" block
 
-  // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
-
-  // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
+    // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
   for (let id in stats) {
     if (stats[id].wh > personalWarLimit) {
       let overflowHits = stats[id].wh - personalWarLimit;
