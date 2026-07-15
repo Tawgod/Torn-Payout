@@ -1,5 +1,5 @@
 // ==========================================
-// PAYOUT MATH (Strict Official Report Engine)
+// PAYOUT MATH (Strict Official Report + Multi-Tier Saves)
 // ==========================================
 function runPayoutMath() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -21,39 +21,35 @@ function runPayoutMath() {
   const cleanId = (val) => (val === null || val === undefined) ? "" : val.toString().replace(/,/g, "").trim();
   const safeStr = (val) => (val === null || val === undefined) ? "" : val.toString().trim();
 
- // --- 1. GET ENEMY ID & STRICT LIMITS ---
+  // --- 1. GET ENEMY ID, STRICT LIMITS & DASHBOARD TOGGLES ---
   const globalHitLimit = parseInt(dashSheet.getRange("F3").getValue()) || 999999;
   const personalWarLimit = parseInt(dashSheet.getRange("F4").getValue()) || 999999;
   const personalChainLimit = parseInt(dashSheet.getRange("F5").getValue()) || 999999;
-  const payOutsideHitsAfterWar = dashSheet.getRange("F6").getValue().toString().toLowerCase() !== "no";
 
-  // CRITICAL FIX: Use getDisplayValues() so "2:30" stays text and doesn't break parsing
-  let dashData = dashSheet.getDataRange().getDisplayValues();
+  let dashData = dashSheet.getDataRange().getValues();
+  let targetFactionId = "";
+  let payPostWarStr = "Yes";
+  let officialWarEndStr = "";
+  
+  for (let r = 0; r < dashData.length; r++) {
+    for (let c = 0; c < dashData[r].length; c++) {
+      let cellText = safeStr(dashData[r][c]).toLowerCase();
 
-  // Helper function to safely find values anywhere in the dashboard
-  const findVal = (label) => {
-      for (let r = 0; r < dashData.length; r++) {
-          for (let c = 0; c < dashData[r].length; c++) {
-              if (safeStr(dashData[r][c]).toLowerCase().includes(label.toLowerCase()) && c + 1 < dashData[r].length) {
-                  return safeStr(dashData[r][c+1]);
-              }
-          }
-      }
-      return ""; // Returns blank if the label isn't found
-  };
-
-  // Find our required limits and IDs
-  let limitStr = findVal("time limit"); // No default "3:00" fallback!
-  let targetFactionId = cleanId(findVal("enemy faction id"));
-
-  let warEndTs = Infinity;
-  let warEndStr = safeStr(dashSheet.getRange("C6").getValue()); 
-  if (warEndStr && warEndStr !== "Ongoing" && warEndStr !== "Finished" && warEndStr !== "N/A" && warEndStr !== "") {
-      warEndTs = new Date(warEndStr + " UTC").getTime(); // Torn runs on UTC/GMT
+      if (cellText === "enemy faction id" && c + 1 < dashData[r].length) targetFactionId = cleanId(dashData[r][c+1]);
+      if (cellText === "pay post-war chain?" && c + 1 < dashData[r].length) payPostWarStr = safeStr(dashData[r][c+1]);
+      if (cellText === "official war end" && c + 1 < dashData[r].length) officialWarEndStr = safeStr(dashData[r][c+1]);
+    }
   }
 
   if (!targetFactionId) {
-    ss.toast("No Enemy Faction ID found. Running in Chain-Only mode (War stats ignored).", "Notice", 4);
+    ss.toast("No Enemy Faction ID found. Running in Chain-Only mode.", "Notice", 4);
+  }
+
+  let payPostWar = (payPostWarStr.toLowerCase() === "yes");
+  let warEndMs = null;
+  if (officialWarEndStr && officialWarEndStr.toLowerCase() !== "ongoing" && officialWarEndStr.toLowerCase() !== "n/a") {
+      let d = new Date(officialWarEndStr + " GMT");
+      if (!isNaN(d.getTime())) warEndMs = d.getTime();
   }
 
   // --- 2. PREPARE PAYOUT SHEET ---
@@ -63,8 +59,6 @@ function runPayoutMath() {
   let stats = {};
 
   // --- 3. EXCLUSIVELY LOAD OFFICIAL BASELINE TOTALS ---
-  
-  // A. Parse Official War Report for War Hits (wh) & Score (ws)
   if (officialWarSheet) {
     const warData = officialWarSheet.getDataRange().getValues();
     let startRow = -1;
@@ -84,7 +78,6 @@ function runPayoutMath() {
     }
   }
 
-  // B. Parse Official Chain Report for Outside Hits (ch), Respect (res), and Assists (wa)
   let officialChainSheetUsed = false;
   if (officialChainSheet && officialChainSheet.getLastRow() > 6) {
     officialChainSheetUsed = true;
@@ -100,30 +93,25 @@ function runPayoutMath() {
         if (!stats[memId]) stats[memId] = { name: `ID: ${memId}`, wh: 0, wa: 0, wl: 0, wi: 0, ch: 0, cs: 0, ret: 0, res: 0, abr: 0, ws: 0 };
         let s = stats[memId];
         
-        s.res += parseFloat(chainData[i][2]) || 0; // Total Chain Respect
-        s.wa += parseInt(chainData[i][6]) || 0;    // Assists
-        s.abr += parseInt(chainData[i][7]) || 0;   // Abroad
+        s.res += parseFloat(chainData[i][2]) || 0; 
+        s.wa += parseInt(chainData[i][6]) || 0;    
+        s.abr += parseInt(chainData[i][7]) || 0;   
         
-        // OUTSIDE HITS CALC: (Total Successful Chain Hits) minus (Official War Hits)
-        // This permanently eliminates ghost hits, as it strictly binds to the Official Chain Report limit.
         let chainSuccesses = (parseInt(chainData[i][3]) || 0) + (parseInt(chainData[i][4]) || 0) + (parseInt(chainData[i][5]) || 0);
         s.ch += Math.max(0, chainSuccesses - s.wh); 
       }
     }
   }
 
-  // --- 4. ADVANCED RD PARSING (For Saves, Retals, Losses, and Respect Corrections) ---
+  // --- 4. ADVANCED RD PARSING (For Post-War logic, Saves, Retals, Losses, and Respect) ---
   if (rdSheet) {
     let rdData = rdSheet.getDataRange().getValues();
-    
-    // RD Column Indices
     let tCol = 2; let aIdCol = 3; let aNameCol = 4; let aFacCol = 5; 
     let dIdCol = 6; let dFacCol = 8; let resltCol = 9; let resCol = 10; 
     let retCol = 13; let cBonusCol = 16; 
 
     let rdEvents = [];
 
-    // Extract raw events
     for (let i = 1; i < rdData.length; i++) {
       let attackerId = cleanId(rdData[i][aIdCol]);
       let aFac = cleanId(rdData[i][aFacCol]);
@@ -141,51 +129,70 @@ function runPayoutMath() {
       });
     }
 
-    // A. Identify Global Hit Limit Cutoff Timestamp
+    let factionHits = rdEvents.filter(e => e.aFac === myFactionId && e.respect > 0);
+    factionHits.sort((a, b) => a.time - b.time);
+    let activeChains = [];
+    let currentChain = [];
+    
+    for (let hit of factionHits) {
+      if (currentChain.length === 0) { currentChain.push(hit); }
+      else {
+        if (hit.time - currentChain[currentChain.length - 1].time <= 300000) { currentChain.push(hit); } // 5 min
+        else {
+          if (currentChain.length >= 10) activeChains.push({start: currentChain[0].time, end: currentChain[currentChain.length-1].time});
+          currentChain = [hit];
+        }
+      }
+    }
+    if (currentChain.length >= 10) activeChains.push({start: currentChain[0].time, end: currentChain[currentChain.length-1].time});
+
     let totalOfficialHits = 0;
     for (let id in stats) { totalOfficialHits += stats[id].wh + stats[id].ch; }
     let hitsToRemove = totalOfficialHits - globalHitLimit;
     let cutoffTimestamp = Infinity; 
 
     if (hitsToRemove > 0) {
-      rdEvents.sort((a, b) => b.time - a.time); // Newest to Oldest
+      rdEvents.sort((a, b) => b.time - a.time); 
       for (let e of rdEvents) {
         if (hitsToRemove <= 0) { cutoffTimestamp = e.time; break; }
         if (e.aFac === myFactionId && e.respect > 0 && stats[e.aId]) {
           let isWarHit = (targetFactionId !== "" && e.dFac === targetFactionId);
-          if (isWarHit && stats[e.aId].wh > 0) { stats[e.aId].wh--; hitsToRemove--; } 
-          else if (!isWarHit && stats[e.aId].ch > 0) { stats[e.aId].ch--; hitsToRemove--; } 
+          if (isWarHit && stats[e.aId].wh > 0) { 
+            stats[e.aId].wh--; hitsToRemove--; 
+            stats[e.aId].res = Math.max(0, stats[e.aId].res - e.respect); 
+          } 
+          else if (!isWarHit && stats[e.aId].ch > 0) { 
+            stats[e.aId].ch--; hitsToRemove--; 
+            stats[e.aId].res = Math.max(0, stats[e.aId].res - e.respect); 
+          } 
         }
       }
     }
 
-    // B. Chronological Processing
-    rdEvents.sort((a, b) => a.time - b.time); // Oldest to Newest
+    rdEvents.sort((a, b) => a.time - b.time); 
     let pendingInterrupts = {};
     let validHitsForSaves = [];
-    
-    for (let e of rdEvents) {
-      if (e.time > cutoffTimestamp) continue; // Ignore anything past the hit limit
 
-      // ---> NEW: Deduct post-war outside hits if toggle is "No" <---
-      if (!payOutsideHitsAfterWar && e.time > warEndTs && e.aFac === myFactionId && e.dFac !== targetFactionId) {
-          let isSuccess = e.result.includes("hosp") || e.result.includes("mug") || e.result.includes("left") || e.result.includes("leave") || e.respect > 0;
-          if (isSuccess && stats[e.aId] && stats[e.aId].ch > 0) {
-              stats[e.aId].ch -= 1; // Safely deduct the outside hit 
-          }
-      }
+    for (let e of rdEvents) {
+      if (e.time > cutoffTimestamp) continue;
 
       if (e.aFac === myFactionId && stats[e.aId]) {
-        // Track Chain Saves timeline
         if (e.respect > 0 && !isNaN(e.time)) validHitsForSaves.push(e);
 
-        // Deduct Milestone Chain Bonuses to reveal True Base Respect
         if (e.respect > 0 && e.cBonus > 1) {
           stats[e.aId].res -= (e.respect - (e.respect / e.cBonus));
           if (stats[e.aId].res < 0) stats[e.aId].res = 0;
         }
 
-        // War Losses & Retals
+        if (!payPostWar && warEndMs && e.time > warEndMs) {
+          let inActiveChain = activeChains.some(c => e.time >= c.start && e.time <= c.end);
+          if (inActiveChain && e.respect > 0) {
+            stats[e.aId].ch = Math.max(0, stats[e.aId].ch - 1);
+            let remainingBaseRes = (e.cBonus > 1) ? (e.respect / e.cBonus) : e.respect;
+            stats[e.aId].res = Math.max(0, stats[e.aId].res - remainingBaseRes); 
+          }
+        }
+
         if (targetFactionId !== "" && e.dFac === targetFactionId) {
           if (e.result.includes("lost") || e.result.includes("escape") || e.result.includes("draw") || e.result.includes("timeout") || e.result.includes("stalemate")) {
             stats[e.aId].wl += 1;
@@ -195,7 +202,6 @@ function runPayoutMath() {
         }
       }
 
-      // Enemy Interruptions
       if (targetFactionId !== "") {
         if (e.aFac === targetFactionId && e.result.includes("interrupted")) {
           pendingInterrupts[e.aId] = true; 
@@ -209,47 +215,56 @@ function runPayoutMath() {
       }
     }
 
-    // C. Chain Saves Math
-    // Only calculate saves if the Time Limit cell is NOT blank
-    if (limitStr !== "") {
-      let timeRemainingSeconds = 180; 
-      let cleanStr = limitStr.trim(); 
-
-      // Check if it's a simple number (like '3') or formatted time (like '3:00')
-      if (!isNaN(parseFloat(cleanStr)) && !cleanStr.includes(":")) {
-          // If user typed "3", treat as 3 minutes
-          timeRemainingSeconds = parseFloat(cleanStr) * 60;
-      } else {
-          // Handle "3:00" or "0:30" formats safely from getDisplayValues()
-          let parts = cleanStr.split(":");
-          if (parts.length === 3) {
-              let h = parseInt(parts[0], 10) || 0;
-              let m = parseInt(parts[1], 10) || 0;
-              let s = parseInt(parts[2], 10) || 0;
-              timeRemainingSeconds = (h * 3600) + (m * 60) + s;
-          } else if (parts.length === 2) {
-              let m = parseInt(parts[0], 10) || 0;
-              let s = parseInt(parts[1], 10) || 0;
-              timeRemainingSeconds = (m * 60) + s;
-          }
-      }
-
-      let requiredGap = 300 - timeRemainingSeconds; 
-      let lastHitTime = null;
-
-      for (let hit of validHitsForSaves) {
-        if (lastHitTime !== null) {
-          let gap = (hit.time - lastHitTime) / 1000;
-          if (gap >= requiredGap && gap <= 300 && stats[hit.aId]) {
-            stats[hit.aId].cs += 1;
-          }
+    // =========================================
+    // D. MULTI-TIER CHAIN SAVES LOGIC 
+    // =========================================
+    let saveTiers = [];
+    
+    // Scan E18:F20 for the custom tiers
+    for (let r = 18; r <= 20; r++) {
+      let timeVal = dashSheet.getRange(`E${r}`).getDisplayValue();
+      let weightVal = dashSheet.getRange(`F${r}`).getValue();
+      
+      if (timeVal && timeVal.toString().trim() !== "") {
+        let cleanStr = timeVal.toString().replace(/[^\d.:]/g, '');
+        let secs = 0;
+        let parts = cleanStr.split(":");
+        if (parts.length === 3) secs = (parseInt(parts[0], 10)||0)*3600 + (parseInt(parts[1], 10)||0)*60 + (parseInt(parts[2], 10)||0);
+        else if (parts.length === 2) secs = (parseInt(parts[0], 10)||0)*60 + (parseInt(parts[1], 10)||0);
+        else if (!isNaN(parseFloat(cleanStr))) secs = parseFloat(cleanStr) * 60;
+        
+        let w = parseFloat(weightVal);
+        if (isNaN(w)) w = 1.0; 
+        
+        if (secs > 0) {
+          saveTiers.push({ requiredGap: 300 - secs, weight: w });
         }
-        lastHitTime = hit.time;
       }
     }
-  } // <-- Closes the "if (rdSheet)" block
 
-    // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
+    // Sort Descending: We check the hardest (closest to 0:00) saves first
+    saveTiers.sort((a, b) => b.requiredGap - a.requiredGap);
+
+    let lastHitTime = null;
+
+    for (let hit of validHitsForSaves) {
+      if (lastHitTime !== null) {
+        let gap = (hit.time - lastHitTime) / 1000;
+        if (gap <= 300 && stats[hit.aId]) {
+          // Loop through the tiers and award the highest eligible multiplier
+          for (let tier of saveTiers) {
+            if (gap >= tier.requiredGap) {
+              stats[hit.aId].cs += tier.weight;
+              break; 
+            }
+          }
+        }
+      }
+      lastHitTime = hit.time;
+    }
+  }
+
+  // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
   for (let id in stats) {
     if (stats[id].wh > personalWarLimit) {
       let overflowHits = stats[id].wh - personalWarLimit;
@@ -300,8 +315,11 @@ function runPayoutMath() {
     }
   }
 
+  // Force the Payout Sheet global Chain Save weight to 1.00 so users don't accidentally double-dip their math
+  payoutSheet.getRange("J1").setValue(1.00);
+
   let finalMsg = targetFactionId 
-    ? "Payout calculated! Outside Hits mapped directly to Official Chain Report." 
-    : "Chain-Only Payout calculated! (Base Respect Adjusted)";
+    ? (payPostWar ? "Payout calculated! Multi-Tier Saves and Post-War Chain extensions included." : "Payout calculated! Multi-Tier Saves applied. Post-War hits removed.") 
+    : "Chain-Only Payout calculated! (Multi-Tier Saves Applied)";
   ss.toast(finalMsg, "Success", 5);
 }
