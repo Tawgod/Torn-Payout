@@ -8,12 +8,11 @@ function publishPayoutToPublic() {
     "This will create a static, visual copy of your current Payouts tab and place it at the FRONT of your Public Spreadsheet.\n\nProceed?", 
     ui.ButtonSet.YES_NO
   );
-
   if (response !== ui.Button.YES) return;
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.toast("Connecting to Public Sheet...", "System", 3);
-
+  
   // --- 1. GET THE PUBLIC SHEET ID FROM CONFIG B8 ---
   const configSheet = ss.getSheetByName(SETTINGS.configSheet);
   let rawId = configSheet ? configSheet.getRange("B8").getValue().toString().trim() : "";
@@ -76,15 +75,19 @@ function publishPayoutToPublic() {
   // Moves the new sheet to the front
   externalSS.setActiveSheet(copiedSheet);
   externalSS.moveActiveSheet(1);
-
-  // --- 4. FLATTEN THE SHEET (THE FIX) ---
-  // Instead of letting the copied sheet calculate broken formulas, 
-  // we grab the perfectly evaluated values directly from your local sheet!
-  let localDataRange = payoutSheet.getDataRange();
-  let localValues = localDataRange.getValues();
   
-  // Paste the local values directly over the copied sheet, locking in the math
-  copiedSheet.getRange(1, 1, localValues.length, localValues[0].length).setValues(localValues);
+  // --- 4. FLATTEN THE SHEET (THE FIX) ---
+  // Using exact matrix dimensions ensures we capture all columns (even hidden ones like Total Points) 
+  // and overwrites any live formulas that would break without the Dashboard tab present.
+  let maxRows = payoutSheet.getLastRow();
+  let maxCols = payoutSheet.getLastColumn();
+  
+  if (maxRows > 0 && maxCols > 0) {
+    let localValues = payoutSheet.getRange(1, 1, maxRows, maxCols).getValues();
+    
+    // Paste the local values directly over the copied sheet, locking in the math forever
+    copiedSheet.getRange(1, 1, maxRows, maxCols).setValues(localValues);
+  }
 
   ui.alert(`✅ Success!\n\nYour payout for [${enemyName}] has been successfully published with locked values!`);
 }
