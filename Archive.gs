@@ -322,13 +322,13 @@ function cleanSweep() {
   // 3. Clear Dashboard Inputs / API Fetched Data
   const dashSheet = ss.getSheetByName((typeof SETTINGS !== 'undefined' && SETTINGS.dashboardSheet) ? SETTINGS.dashboardSheet : "Dashboard");
   if (dashSheet) {
-    // A. Wipe ALL leaderboards mapping exactly to the new layout ranges
+    // Wipe ALL leaderboards mapping exactly to the new layout ranges
     const hardcodedRanges = ["C5:C7", "C10", "C16:C19", "E29:F31", "H16:I19", "H24:I31", "K16:L28"];
     hardcodedRanges.forEach(rangeStr => {
       try { dashSheet.getRange(rangeStr).clearContent(); } catch(e) {}
     });
     
-    // B. Smart-Scan for specific labels and clear the cell to their right
+    // Smart-Scan for specific labels and clear the cell to their right
     let dashData = dashSheet.getDataRange().getValues();
     let cellsToClear = [];
 
@@ -349,7 +349,37 @@ function cleanSweep() {
     cellsToClear.forEach(cell => cell.clearContent());
   }
 
-  // 4. Trigger a rebuild to ensure standard formulas and borders remain intact
+  // 4. Clean the Payouts Tab
+  let payoutSheet = ss.getSheetByName((typeof SETTINGS !== 'undefined' && SETTINGS.payoutSheet) ? SETTINGS.payoutSheet : "Payouts");
+  if (payoutSheet && payoutSheet.getLastRow() >= 3) {
+    // Uncheck all checkboxes safely
+    payoutSheet.getRange(3, 1, payoutSheet.getLastRow() - 2, payoutSheet.getLastColumn()).uncheck();
+    
+    // Clear numerical calculation area (columns E through the end, minus a few for safety)
+    payoutSheet.getRange(3, 5, payoutSheet.getLastRow() - 2, payoutSheet.getLastColumn() - 4).clearContent();
+    
+    // Scan and delete "Left Faction" ghost rows
+    let pData = payoutSheet.getDataRange().getValues();
+    let ghostRowIdx = -1;
+    for(let i = 0; i < pData.length; i++) {
+      if (pData[i][1] === "⚠️ NON-ROSTER / LEFT FACTION" || pData[i][1].toString().includes("(Left Faction)")) { 
+        ghostRowIdx = i + 1;
+        break; 
+      }
+    }
+    if (ghostRowIdx > 0) { 
+      payoutSheet.deleteRows(ghostRowIdx, payoutSheet.getLastRow() - ghostRowIdx + 1);
+    }
+  }
+
+  // 5. Clean the Final Payout Tab
+  let finalPayoutSheet = ss.getSheetByName("Final Payout") || ss.getSheetByName("Final Payouts");
+  if (finalPayoutSheet && finalPayoutSheet.getLastRow() > 1) {
+    // Clears everything from row 2 down to preserve your headers
+    finalPayoutSheet.getRange(2, 1, finalPayoutSheet.getMaxRows() - 1, finalPayoutSheet.getMaxColumns()).clearContent();
+  }
+
+  // 6. Trigger a rebuild to ensure standard formulas and borders remain intact
   if (typeof buildDashboard === "function") { 
     buildDashboard();
   }
