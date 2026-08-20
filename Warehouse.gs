@@ -83,7 +83,7 @@ function runBackendTracker() {
         atk.defender_id, atk.defender_name, atk.defender_faction,
         atk.result, atk.respect,
         modifiers.fair_fight || 1, modifiers.war || 1, modifiers.retaliation || 1,
-        modifiers.group_attack || 1, modifiers.overseas || 1, modifiers.chain_bonus || 1, modifiers.warlord || 1
+        modifiers.group || 1, modifiers.overseas || 1, modifiers.chain || 1, modifiers.warlord || 0
       ]);
       
       existingIds.add(id.toString()); // Add to live memory
