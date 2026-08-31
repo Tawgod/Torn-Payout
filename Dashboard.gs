@@ -970,6 +970,11 @@ function buildDashboard() {
   // Formatting specific sections (From your file)
   dashSheet.getRange("E8:F8").setBackground("#1a73e8").setFontColor("#ffffff"); // Vibrant Blue Time Window
   dashSheet.getRange("E18:F18").setBackground("#1a73e8").setFontColor("#ffffff"); // Vibrant Blue Chain Watch
+  // ---  RESTORE Chain save info ---
+  if (sd.tiers && sd.tiers.length > 0) {
+    // Stamps the Watch Time limits and Weights back into place
+    dashSheet.getRange("E19:F21").setValues(sd.tiers);
+  }
 
   dashSheet.setHiddenGridlines(true);
   dashSheet.setFrozenRows(1);
