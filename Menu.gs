@@ -17,7 +17,6 @@ function onOpen() {
     .addItem('🧹 Clean Sweep (Reset Sheet)', 'cleanSweep')
     .addSeparator()
     .addItem('🔍 Run Auto-Auditor', 'runPayoutAudit') 
-    .addItem('🎯 Run Sniper Audit (Check missing hits)', 'runSniperAudit') // <-- NEW: Player-specific debugger
     .addItem('Rebuild Dashboard UI', 'buildDashboard') 
     .addToUi();
 }
