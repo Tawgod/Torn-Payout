@@ -761,7 +761,8 @@ function buildDashboard() {
       sd.warRep = dashSheet.getRange("F15").getValue();
       sd.chainRep = dashSheet.getRange("F16").getValue();
       
-      sd.tiers = dashSheet.getRange("E19:F21").getValues();
+      sd.tiers = dashSheet.getRange("E19:F21").getValues(); // Or E19:F22 if you expanded it
+      sd.savedPushes = dashSheet.getRange("K4:M13").getValues();
     } catch(e) {}
   }
 
@@ -875,8 +876,6 @@ function buildDashboard() {
 
   // ---> MULTI-TIER CHAIN WATCH <---
   buildBlock("E18:F21", "E18:F18", "⏱️ CHAIN WATCH", colors.purpleHeader, colors.purpleBg);
-  // Row 19 is the Time/Weight Input. E18 is actually the Header in buildBlock. 
-  // Let's manually set E18 to Sub-headers to fit your exact request
   dashSheet.getRange("E18:F18").breakApart().setValues([["Watch Time Limit", "Weight"]]).setBackground(colors.purpleBg).setFontColor("#000000");
   
   dashSheet.getRange("E19:F21").setValues([
@@ -884,6 +883,21 @@ function buildDashboard() {
     ["", ""],
     ["", ""]
   ]);
+
+  // ---> NEW: MULTI-PUSH SETTINGS (K, L, M) <---
+  dashSheet.getRange("K2:M13").setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+  dashSheet.getRange("K2:M2").merge().setValue("⏩ PUSH SETTINGS")
+    .setBackground(colors.purpleHeader).setFontColor(colors.headerText).setFontWeight("bold").setHorizontalAlignment("center");
+  
+  dashSheet.getRange("K3:M3").setValues([["Start Time", "Start Date", "Time Limit (Min)"]])
+    .setBackground(colors.purpleBg).setFontColor("#000000").setFontWeight("bold").setHorizontalAlignment("center");
+  
+  // ---> NEW: PUSH WATCH (MOVED TO K & L) <---      //////////Updated with the code above////////////
+  //buildBlock("K2:L3", "K2:L2", "⏩ PUSH SETTINGS", colors.purpleHeader, colors.purpleBg);
+  //dashSheet.getRange("K3:L3").setValues([
+  //  ["Push Time Limit", ""]
+  //]);
+                                                      ////////////////////////////////////////////////////
 
   // ==========================================
   // RIGHT COLUMN: WAR FINANCIALS
@@ -956,6 +970,16 @@ function buildDashboard() {
 
   // Make manual entry boxes bright white
   dashSheet.getRange("C4").setBackground("#ffffff"); // Faction ID
+  // Make the entire Push input area bright white
+  dashSheet.getRange("K4:M13").setBackground("#fdf4fd").setHorizontalAlignment("center");
+
+  // --- RESTORE Chain & Push settings ---
+  if (sd.tiers && sd.tiers.length > 0) {
+    dashSheet.getRange("E19:F21").setValues(sd.tiers.slice(0, 3)); 
+  }
+  if (sd.savedPushes && sd.savedPushes.length > 0) {
+    dashSheet.getRange("K4:M13").setValues(sd.savedPushes);
+  }
   dashSheet.getRange("C13").setBackground("#ffffff"); // Termed?
   dashSheet.getRange("F3:F6").setBackground("#ffffff"); // Payout Filters
   dashSheet.getRange("F9:F12").setBackground("#ffffff"); // Time Window
@@ -971,10 +995,13 @@ function buildDashboard() {
   dashSheet.getRange("E8:F8").setBackground("#1a73e8").setFontColor("#ffffff"); // Vibrant Blue Time Window
   dashSheet.getRange("E18:F18").setBackground("#1a73e8").setFontColor("#ffffff"); // Vibrant Blue Chain Watch
   
-  // ---  RESTORE Chain save info ---
+  // --- RESTORE Chain & Push settings ---
   if (sd.tiers && sd.tiers.length > 0) {
-    // Stamps the Watch Time limits and Weights back into place
-    dashSheet.getRange("E19:F21").setValues(sd.tiers);
+    // .slice(0, 3) ensures it only pastes 3 rows back, leaving row 22 empty!
+    dashSheet.getRange("E19:F21").setValues(sd.tiers.slice(0, 3)); 
+  }
+  if (sd.pushLimit) {
+    dashSheet.getRange("L3").setValue(sd.pushLimit);
   }
 
   dashSheet.setHiddenGridlines(true);

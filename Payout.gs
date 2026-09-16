@@ -43,12 +43,12 @@ function buildPayoutTab() {
     }
   }
 
-  // ---> UPDATED: Metrics List now dynamically contains the time values natively
+  // ---> UPDATED: Added Warlord Hits and Pushes to the end of the metrics list
   const metricsList = [
     "War Hits", "War Assists", "War Losses", "War Interruptions", 
     "Outside / Chain Hits", "Chain Saves", "Retaliations", 
     "Net Respect", "War Abroad Hits", "War Score",
-    t1, t2, t3
+    t1, t2, t3, "Warlord Hits", "Pushes"
   ];
 
   // 2. PRESERVE EXISTING WEIGHTS (Safely)
@@ -102,7 +102,7 @@ function buildPayoutTab() {
   row2[2] = "Contribution %";
   row2[3] = "Payout";
   metricsList.forEach((m, index) => row2[4 + index] = m); 
-  row2[19] = "Total Points"; 
+  row2[19] = "Total Points"; // Shifted appropriately to Column T (Index 19)
   
   // Format O2:Q2 as Plain Text BEFORE pasting, preventing Sheets from changing times into decimals
   payoutSheet.getRange("O2:Q2").setNumberFormat("@");
@@ -121,8 +121,8 @@ function buildPayoutTab() {
     payoutSheet.getRange(3, 1, activeMembers.length, 2).setValues(activeMembers);
   }
 
-  // 5. HEADER & INPUT FORMATTING (Expanded to Column Q / 17 columns)
-  payoutSheet.getRange(2, 1, 1, 17).setBackground("#274e13").setFontColor("white").setFontWeight("bold").setHorizontalAlignment("center");
+  // 5. HEADER & INPUT FORMATTING (Expanded to Column S / 19 columns)
+  payoutSheet.getRange(2, 1, 1, 19).setBackground("#274e13").setFontColor("white").setFontWeight("bold").setHorizontalAlignment("center");
   payoutSheet.getRange(2, 20).setBackground("#274e13").setFontColor("white"); 
   
   payoutSheet.getRange(1, 5, 1, metricsList.length)
@@ -139,7 +139,8 @@ function buildPayoutTab() {
     for (let r = 0; r < activeMembers.length; r++) {
       let rowNum = r + 3;
       
-      let scoreFormula = `=IFERROR(SUMPRODUCT($E$1:$Q$1, E${rowNum}:Q${rowNum}), 0)`;
+      // UPDATED: SUMPRODUCT extended to Column S
+      let scoreFormula = `=IFERROR(SUMPRODUCT($E$1:$S$1, E${rowNum}:S${rowNum}), 0)`;
       let contribFormula = `=IFERROR(IF(SUM($T$3:$T$500)>0, T${rowNum} / SUM($T$3:$T$500), 0), 0)`;
       let payoutFormula = `=IFERROR(IF(C${rowNum}>0, C${rowNum} * '${dashboardName}'!$I$13, 0), 0)`;
       
@@ -150,14 +151,16 @@ function buildPayoutTab() {
       let bgColor = (r % 2 === 0) ? "#ffffff" : "#f1f3f4"; 
       let moneyColor = (r % 2 === 0) ? "#e6f4ea" : "#ceead6"; 
       
-      payoutSheet.getRange(rowNum, 1, 1, 17).setBackground(bgColor).setHorizontalAlignment("center");
+      payoutSheet.getRange(rowNum, 1, 1, 19).setBackground(bgColor).setHorizontalAlignment("center");
       payoutSheet.getRange(rowNum, 1, 1, 2).setHorizontalAlignment("left"); 
       payoutSheet.getRange(rowNum, 4).setBackground(moneyColor).setFontWeight("bold"); 
     }
     
-    payoutSheet.getRange(2, 1, activeMembers.length + 1, 17).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+    // Expanded border bounds to 19 columns
+    payoutSheet.getRange(2, 1, activeMembers.length + 1, 19).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
 
-    payoutSheet.getRange(3, 5, activeMembers.length, 13).setNumberFormat('#,##0'); 
+    // Formats numbers properly to handle 15 data metrics
+    payoutSheet.getRange(3, 5, activeMembers.length, 15).setNumberFormat('#,##0'); 
     payoutSheet.getRange(3, 12, activeMembers.length, 1).setNumberFormat('#,##0.00'); // Net Respect
     payoutSheet.getRange(3, 14, activeMembers.length, 1).setNumberFormat('#,##0.00'); // War Score
   }
@@ -167,13 +170,14 @@ function buildPayoutTab() {
   payoutSheet.setColumnWidth(3, 115); 
   payoutSheet.setColumnWidth(4, 130); 
   
-  for (let c = 5; c <= 17; c++) { payoutSheet.setColumnWidth(c, 115); }
+  // Sizing loop expanded to format up to Column S
+  for (let c = 5; c <= 19; c++) { payoutSheet.setColumnWidth(c, 115); }
   payoutSheet.setColumnWidth(8, 140); 
   payoutSheet.setColumnWidth(9, 150); 
   payoutSheet.setColumnWidth(13, 130); 
 
   payoutSheet.hideColumns(1); 
-  payoutSheet.hideColumns(20); 
+  payoutSheet.hideColumns(20); // Column T (Total Points)
 
   ss.toast("Payout Tab Restored! Crunching metrics...", "System", 3);
   SpreadsheetApp.flush();

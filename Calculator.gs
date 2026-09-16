@@ -1,5 +1,5 @@
 // ==========================================
-// PAYOUT MATH (Live Weights + Static Headers)
+// PAYOUT MATH (Live Weights + Static Headers + Warlord/Pushes)
 // ==========================================
 function runPayoutMath() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -30,6 +30,7 @@ function runPayoutMath() {
   let targetFactionId = "";
   let payPostWarStr = "Yes";
   let officialWarEndStr = "";
+  let pushLimitStr = ""; // NEW: Push Limit Tracker
   
   for (let r = 0; r < dashData.length; r++) {
     for (let c = 0; c < dashData[r].length; c++) {
@@ -37,6 +38,7 @@ function runPayoutMath() {
       if (cellText === "enemy faction id" && c + 1 < dashData[r].length) targetFactionId = cleanId(dashData[r][c+1]);
       if (cellText === "pay post-war chain?" && c + 1 < dashData[r].length) payPostWarStr = safeStr(dashData[r][c+1]);
       if (cellText === "official war end" && c + 1 < dashData[r].length) officialWarEndStr = safeStr(dashData[r][c+1]);
+      if (cellText === "push time limit" && c + 1 < dashData[r].length) pushLimitStr = safeStr(dashData[r][c+1]); // NEW
     }
   }
 
@@ -55,12 +57,13 @@ function runPayoutMath() {
   const lastPayoutRow = Math.max(3, payoutSheet.getLastRow());
   const existingIds = payoutSheet.getRange(3, 1, lastPayoutRow - 2, 1).getValues().flat().map(id => cleanId(id));
   
-  // Clear E through Q (13 columns)
+  // Clear E through Q (13 columns) AND R through S (2 columns)
   payoutSheet.getRange(3, 5, lastPayoutRow - 2, 13).clearContent();
+  payoutSheet.getRange(3, 18, lastPayoutRow - 2, 2).clearContent();
   let stats = {};
 
   const initStats = (name) => ({ 
-    name: name, wh: 0, wa: 0, wl: 0, wi: 0, ch: 0, cs: 0, ret: 0, res: 0, abr: 0, ws: 0, t0: 0, t1: 0, t2: 0 
+    name: name, wh: 0, wa: 0, wl: 0, wi: 0, ch: 0, cs: 0, ret: 0, res: 0, abr: 0, ws: 0, t0: 0, t1: 0, t2: 0, wlh: 0, ph: 0 
   });
 
   // --- 3. EXCLUSIVELY LOAD OFFICIAL BASELINE TOTALS ---
@@ -111,7 +114,7 @@ function runPayoutMath() {
     let rdData = rdSheet.getDataRange().getValues();
     let tCol = 2; let aIdCol = 3; let aNameCol = 4; let aFacCol = 5; 
     let dIdCol = 6; let dFacCol = 8; let resltCol = 9; let resCol = 10; 
-    let retCol = 13; let cBonusCol = 16; 
+    let retCol = 13; let cBonusCol = 16; let warlordCol = 19; // Col T 
 
     let rdEvents = [];
 
@@ -128,7 +131,8 @@ function runPayoutMath() {
         result: safeStr(rdData[i][resltCol]).toLowerCase(), 
         respect: parseFloat(rdData[i][resCol]) || 0,
         retMult: parseFloat(rdData[i][retCol]) || 1,
-        cBonus: parseFloat(rdData[i][cBonusCol]) || 1
+        cBonus: parseFloat(rdData[i][cBonusCol]) || 1,
+        warlord: parseFloat(rdData[i][warlordCol]) || 1 // Capture Warlord
       });
     }
 
@@ -224,14 +228,13 @@ function runPayoutMath() {
     }
 
     // =========================================
-    // D. MULTI-TIER CHAIN SAVES LOGIC (O/P/Q Parser)
+    // D. MULTI-TIER CHAIN SAVES & PUSH WINDOW LOGIC
     // =========================================
     let allTiers = [];
     let saveTiers = [];
     let tierRowStart = -1;
     let tierCol = -1;
     
-    // Find where "Watch Time Limit" is located on the dashboard
     for (let r = 0; r < dashData.length; r++) {
       for (let c = 0; c < dashData[r].length; c++) {
         let val = dashData[r][c] ? dashData[r][c].toString().toLowerCase().trim() : "";
@@ -251,19 +254,17 @@ function runPayoutMath() {
       let row2 = tierRowStart + 1;
       let row3 = tierRowStart + 2;
 
-      // Link Weights to O1:Q1 directly as live formulas (Weights are decimals so they are safe)
-      payoutSheet.getRange("O1:Q1").setFormulas([[
+      payoutSheet.getRange("O1:Q1").setFormulas([[ 
         `=IFERROR(VALUE('${dashName}'!F${row1}), 0)`, 
         `=IFERROR(VALUE('${dashName}'!F${row2}), 0)`, 
         `=IFERROR(VALUE('${dashName}'!F${row3}), 0)`
       ]]);
       
-      // FIXED: Grab exact visual text for Labels to prevent Google Sheets from doing decimal math
       let label1 = dashSheet.getRange(row1, tierCol).getDisplayValue();
       let label2 = dashSheet.getRange(row2, tierCol).getDisplayValue();
       let label3 = dashSheet.getRange(row3, tierCol).getDisplayValue();
 
-      payoutSheet.getRange("O2:Q2").setValues([[
+      payoutSheet.getRange("O2:Q2").setValues([[ 
         label1 ? label1 + " Saves" : "Tier 1",
         label2 ? label2 + " Saves" : "Tier 2",
         label3 ? label3 + " Saves" : "Tier 3"
@@ -279,32 +280,67 @@ function runPayoutMath() {
           else if (parts.length === 2) secs = (parseInt(parts[0], 10)||0)*60 + (parseInt(parts[1], 10)||0);
           else if (!isNaN(parseFloat(cleanStr))) secs = parseFloat(cleanStr) * 60;
           
-          if (secs > 0) {
-            saveTiers.push({ requiredGap: 300 - secs, originalIndex: i });
-          }
+          if (secs > 0) saveTiers.push({ requiredGap: 300 - secs, originalIndex: i });
         }
       }
     }
 
-    // MATCH HEADER FORMATTING: Copy exact styling from Column N headers to O, P, and Q
+    // ---> NEW: Parse Push Windows from K4:M13 <---
+    let pushWindows = [];
+    for (let r = 3; r <= 12; r++) { // dashData rows 3-12 correlate to sheet rows 4-13
+      let pTimeStr = dashData[r][10] ? dashData[r][10].toString().trim() : ""; // Col K
+      let pDateVal = dashData[r][11]; // Col L
+      let pLimitStr = dashData[r][12] ? dashData[r][12].toString().trim() : ""; // Col M
+
+      if (pTimeStr && pDateVal && pLimitStr) {
+        let pd = new Date(pDateVal);
+        let ptParts = pTimeStr.split(":");
+        let pHour = parseInt(ptParts[0]) || 0;
+        let pMin = parseInt(ptParts[1]) || 0;
+        let pSec = parseInt(ptParts[2]) || 0;
+
+        // Convert the Date & Time into a Torn-accurate UTC Timestamp
+        let startUnix = Date.UTC(pd.getUTCFullYear(), pd.getUTCMonth(), pd.getUTCDate(), pHour, pMin, pSec);
+        let limitMins = parseFloat(pLimitStr) || 0;
+        let endUnix = startUnix + (limitMins * 60000); // 60,000 ms in a minute
+
+        pushWindows.push({ start: startUnix, end: endUnix });
+      }
+    }
+
     if (payoutSheet.getLastRow() >= 2) {
       payoutSheet.getRange("N1:N2").copyTo(payoutSheet.getRange("O1:Q2"), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
       payoutSheet.getRange("O1:Q2").setHorizontalAlignment("center"); 
     }
     
-    // Sort Descending: check hardest saves first
     saveTiers.sort((a, b) => b.requiredGap - a.requiredGap);
     
     let lastHitTime = null;
 
     for (let hit of validHitsForSaves) {
+      // 1. Warlord Tracker
+      if (hit.warlord > 1 && stats[hit.aId]) {
+         stats[hit.aId].wlh += 1;
+      }
+
+      // 2. Push Window Tracker (Independent of gaps, checks exact timestamps)
+      if (stats[hit.aId] && targetFactionId !== "" && hit.dFac === targetFactionId) {
+        for (let pw of pushWindows) {
+           if (hit.time >= pw.start && hit.time <= pw.end) {
+              stats[hit.aId].ph += 1; // It's a Push Hit!
+              break; 
+           }
+        }
+      }
+
+      // 3. Chain Saves Tracker (Chronological Gap Check)
       if (lastHitTime !== null) {
         let gap = (hit.time - lastHitTime) / 1000;
         if (gap <= 300 && stats[hit.aId]) {
           for (let tier of saveTiers) {
             if (gap >= tier.requiredGap) {
-              stats[hit.aId].cs += 1; // Increment Raw Total Saves
-              stats[hit.aId][`t${tier.originalIndex}`] += 1; // Increment Specific Tier Count
+              stats[hit.aId].cs += 1; 
+              stats[hit.aId][`t${tier.originalIndex}`] += 1; 
               break; 
             }
           }
@@ -314,7 +350,6 @@ function runPayoutMath() {
     }
   }
 
-  // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
   for (let id in stats) {
     if (stats[id].wh > personalWarLimit) {
       let overflowHits = stats[id].wh - personalWarLimit;
@@ -326,38 +361,48 @@ function runPayoutMath() {
     }
   }
 
-  // --- 6. OUTPUT & "LEFT FACTION" INJECTION (Now 13 Columns E through Q) ---
-  const output = existingIds.map(id => {
-    let s = stats[id] || initStats(id);
-    return [s.wh, s.wa, s.wl, s.wi, s.ch, s.cs, s.ret, s.res, s.abr, s.ws, s.t0, s.t1, s.t2];
-  });
+  // --- 6. OUTPUT (Split Base + Push/Warlord to save Formulas in O/P/Q) ---
+  const outputBase = [];
+  const outputNew = [];
 
-  if (output.length > 0) payoutSheet.getRange(3, 5, output.length, 13).setValues(output);
+  for (let id of existingIds) {
+    let s = stats[id] || initStats(id);
+    outputBase.push([s.wh, s.wa, s.wl, s.wi, s.ch, s.cs, s.ret, s.res, s.abr, s.ws, s.t0, s.t1, s.t2]);
+    outputNew.push([s.wlh, s.ph]); 
+  }
+
+  if (outputBase.length > 0) {
+    payoutSheet.getRange(3, 5, outputBase.length, 13).setValues(outputBase);
+    payoutSheet.getRange(3, 18, outputNew.length, 2).setValues(outputNew); // Write directly to R and S
+  }
   
   let missingPlayers = [];
-  let missingStats = [];
+  let missingStatsBase = [];
+  let missingStatsNew = [];
   
   for (let id in stats) {
     if (!existingIds.includes(id) && id !== "" && id !== "API ERROR:") {
       missingPlayers.push([id, `${stats[id].name} (Left Faction)`]);
-      missingStats.push([stats[id].wh, stats[id].wa, stats[id].wl, stats[id].wi, stats[id].ch, stats[id].cs, stats[id].ret, stats[id].res, stats[id].abr, stats[id].ws, stats[id].t0, stats[id].t1, stats[id].t2]);
+      missingStatsBase.push([stats[id].wh, stats[id].wa, stats[id].wl, stats[id].wi, stats[id].ch, stats[id].cs, stats[id].ret, stats[id].res, stats[id].abr, stats[id].ws, stats[id].t0, stats[id].t1, stats[id].t2]);
+      missingStatsNew.push([stats[id].wlh, stats[id].ph]);
     }
   }
 
-  let maxCols = Math.max(17, payoutSheet.getLastColumn()); 
+  let maxCols = Math.max(19, payoutSheet.getLastColumn()); 
 
   if (missingPlayers.length > 0) {
     let targetRow = payoutSheet.getLastRow() + 1;
 
     payoutSheet.getRange(targetRow, 1, missingPlayers.length, 2).setValues(missingPlayers);
-    payoutSheet.getRange(targetRow, 5, missingStats.length, 13).setValues(missingStats);
-    payoutSheet.getRange(targetRow, 1, missingPlayers.length, 17).setBackground("#fce8e6").setFontStyle("italic");
+    payoutSheet.getRange(targetRow, 5, missingStatsBase.length, 13).setValues(missingStatsBase);
+    payoutSheet.getRange(targetRow, 18, missingStatsNew.length, 2).setValues(missingStatsNew);
+    payoutSheet.getRange(targetRow, 1, missingPlayers.length, 19).setBackground("#fce8e6").setFontStyle("italic");
 
     if (payoutSheet.getLastRow() >= 3) {
       let r1c1Formulas = payoutSheet.getRange(3, 1, 1, maxCols).getFormulasR1C1()[0];
       for (let c = 0; c < maxCols; c++) {
-        // Exclude Name, ID, and Raw Data Columns (E through Q, which are indices 4 to 16)
-        let isRawDataCol = (c === 0 || c === 1 || (c >= 4 && c <= 16));
+        // Exclude raw input cols (E-Q = 4-16, R-S = 17-18)
+        let isRawDataCol = (c === 0 || c === 1 || (c >= 4 && c <= 18));
         if (!isRawDataCol && r1c1Formulas[c] !== "") {
           let newFormulaBlock = [];
           for (let r = 0; r < missingPlayers.length; r++) newFormulaBlock.push([r1c1Formulas[c]]);
@@ -367,9 +412,6 @@ function runPayoutMath() {
     }
   }
 
-  // ==========================================
-  // MATCH DATA FORMATTING & WHOLE NUMBERS
-  // ==========================================
   let finalLastRow = payoutSheet.getLastRow();
 
   if (finalLastRow >= 3) {
@@ -378,14 +420,8 @@ function runPayoutMath() {
       SpreadsheetApp.CopyPasteType.PASTE_FORMAT, 
       false
     );
-    // Center the text and force whole numbers (no decimals)
-    payoutSheet.getRange(3, 15, finalLastRow - 2, 3)
-      .setHorizontalAlignment("center")
-      .setNumberFormat("0");
+    payoutSheet.getRange(3, 15, finalLastRow - 2, 3).setHorizontalAlignment("center").setNumberFormat("0");
 
-    // ==========================================
-    // AUTOMATIC FORMULA REWRITER (Targets Column T and all others)
-    // ==========================================
     let formulaRange = payoutSheet.getRange(3, 1, finalLastRow - 2, maxCols);
     let formulas = formulaRange.getFormulas();
     let hasChanges = false;
@@ -396,36 +432,25 @@ function runPayoutMath() {
         if (f) {
           let orig = f;
           let rowNum = r + 3;
-          
           let newMath = `(($O$1*O${rowNum}) + ($P$1*P${rowNum}) + ($Q$1*Q${rowNum}))`;
-          
           f = f.replace(/\*\s*\$?J\$?1(?!\d)/gi, '');
           f = f.replace(/\$?J\$?1(?!\d)\s*\*/gi, '');
-
           let jRegex = new RegExp(`([^A-Z])\\$?J\\$?${rowNum}(?!\\d)`, "gi");
           f = f.replace(jRegex, `$1${newMath}`);
-          
           let jRegexStart = new RegExp(`^\\=\\$?J\\$?${rowNum}(?!\\d)`, "gi");
           f = f.replace(jRegexStart, `=${newMath}`);
-
-          if (f !== orig) {
-            formulas[r][c] = f;
-            hasChanges = true;
-          }
+          if (f !== orig) { formulas[r][c] = f; hasChanges = true; }
         }
       }
     }
     
-    if (hasChanges) {
-      formulaRange.setFormulas(formulas);
-    }
+    if (hasChanges) formulaRange.setFormulas(formulas);
   }
 
-  // Visually disable J1 so it stops causing confusion
   payoutSheet.getRange("J1").clearContent().setBackground("#e6e8eb");
 
   let finalMsg = targetFactionId 
-    ? (payPostWar ? "Payout calculated! Multi-tier math updated in formulas." : "Payout calculated! Post-War hits removed & formulas updated.") 
-    : "Chain-Only Payout calculated! (Multi-tier saves mapped)";
+    ? (payPostWar ? "Payout calculated! Push hits & Warlords updated." : "Payout calculated! Post-War hits removed & pushes mapped.") 
+    : "Chain-Only Payout calculated! (Warlords and pushes mapped)";
   ss.toast(finalMsg, "Success", 5);
 }
