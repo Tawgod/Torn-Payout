@@ -1,4 +1,4 @@
-const API_KEY = "K69UD2sZja0BBg3Q"; 
+const API_KEY = "API KEY HERE"; 
 
 function runBackendTracker() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
