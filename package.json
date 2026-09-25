@@ -1,0 +1,17 @@
+{
+  "name": "torn-payout-archive-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Railway/Postgres archive API for Torn payout history",
+  "main": "railway-api/server.js",
+  "scripts": {
+    "start": "node railway-api/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "pg": "^8.16.3"
+  }
+}
