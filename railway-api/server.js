@@ -51,6 +51,19 @@ function asBool(v) {
   return null;
 }
 
+function tornApiKeyForFaction(factionKey) {
+  const key = String(factionKey || "").trim().toLowerCase();
+  if (key === "ironsides") return process.env.TORN_API_KEY_IRONSIDES || "";
+  if (key === "resolute") return process.env.TORN_API_KEY_RESOLUTE || "";
+  return "";
+}
+
+const TORN_ALLOWED_SCOPES = new Set(["torn", "faction", "user"]);
+const TORN_ALLOWED_SELECTIONS = new Set([
+  "items", "rankedwarreport", "chainreport", "news", "basic",
+  "fundsnews", "profile", "rankedwars"
+]);
+
 async function initializeSchema() {
   const schemaPath = path.join(__dirname, "schema.sql");
   const sql = fs.readFileSync(schemaPath, "utf8");
@@ -346,6 +359,49 @@ app.get("/public/:faction/:recordId", async (req, res) => {
 });
 
 app.use("/api", requireAuth);
+
+app.get("/api/torn", async (req, res) => {
+  try {
+    const factionKey = asText(req.query.faction);
+    const scope = asText(req.query.scope);
+    const id = asText(req.query.id);
+    const selectionsRaw = asText(req.query.selections);
+
+    if (!factionKey || !scope || !selectionsRaw) {
+      return res.status(400).json({ error: "faction, scope, and selections are required" });
+    }
+    if (!TORN_ALLOWED_SCOPES.has(scope)) {
+      return res.status(400).json({ error: "Unsupported Torn API scope" });
+    }
+
+    const selections = selectionsRaw.split(",").map(s => s.trim()).filter(Boolean);
+    if (!selections.length || selections.some(s => !TORN_ALLOWED_SELECTIONS.has(s))) {
+      return res.status(400).json({ error: "Unsupported Torn API selection" });
+    }
+
+    const apiKey = tornApiKeyForFaction(factionKey);
+    if (!apiKey) {
+      return res.status(503).json({ error: "No Railway Torn API key configured for faction " + factionKey });
+    }
+
+    let url = "https://api.torn.com/" + encodeURIComponent(scope) + "/";
+    if (id) url += encodeURIComponent(id);
+    url += "?selections=" + encodeURIComponent(selections.join(",")) + "&key=" + encodeURIComponent(apiKey);
+
+    const response = await fetch(url, { headers: { "User-Agent": "Torn-Payout-Railway/1.0" } });
+    const bodyText = await response.text();
+    let body;
+    try { body = JSON.parse(bodyText); } catch (_e) { body = { error: { error: bodyText || "Invalid Torn API response" } }; }
+
+    if (!response.ok) {
+      return res.status(response.status).json(body);
+    }
+    return res.json(body);
+  } catch (err) {
+    console.error(err);
+    return res.status(502).json({ error: "Torn API proxy failed" });
+  }
+});
 
 app.get("/api/wars", async (req, res) => {
   const factionKey = asText(req.query.faction);
