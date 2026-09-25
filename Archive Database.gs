@@ -598,6 +598,10 @@ function restoreArchivedWar_(archive) {
   directValues.forEach(pair => setDashboardValueByLabel_(dashSheet, pair[0], pair[1]));
 
   SpreadsheetApp.flush();
+
+  if (typeof refreshDashboard === "function") {
+    refreshDashboard();
+  }
 }
 
 function extractSpreadsheetId_(raw) {
