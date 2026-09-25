@@ -1,0 +1,39 @@
+name: Bootstrap Railway Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create-staging:
+    runs-on: ubuntu-latest
+    container: ghcr.io/railwayapp/cli:latest
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      PROJECT_ID: 5b59f369-aad3-4c43-9958-ca3711b4265d
+      PRODUCTION_ENVIRONMENT_ID: 16160ab2-5e00-4d84-8d2e-9dd1c9b0b6a9
+    steps:
+      - name: Validate secret
+        run: |
+          test -n "$RAILWAY_API_TOKEN" || {
+            echo "Missing repository secret RAILWAY_API_TOKEN"
+            exit 1
+          }
+
+      - name: Link production
+        run: railway link --project "$PROJECT_ID" --environment "$PRODUCTION_ENVIRONMENT_ID"
+
+      - name: Clone production to staging
+        run: railway environment new staging --copy "$PRODUCTION_ENVIRONMENT_ID"
+
+      - name: Point payout API staging instance at migration branch
+        run: |
+          railway environment edit --environment staging \
+            --service-config payout-archive-api source.branch railway-db-migration \
+            --service-config payout-archive-api variables.PAYOUT_ENVIRONMENT.value staging \
+            --message "Configure payout staging environment"
+
+      - name: Show staging configuration
+        run: railway environment config --environment staging --json
