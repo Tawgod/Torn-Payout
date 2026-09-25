@@ -8,6 +8,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Save Current War to Database', 'archiveCurrentWarToDatabase')
     .addItem('Migrate Legacy Google Archives', 'migrateLegacyGoogleArchivesToDatabase')
+    .addItem('Migrate Public-Only Payout Tabs', 'migrateLegacyPublicOnlyWarsToDatabase')
     .addSeparator()
     .addItem('ARCHIVE TO DATABASE & RESET', 'archiveAndResetWarDatabase');
 
