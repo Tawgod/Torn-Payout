@@ -272,7 +272,8 @@ function archiveCurrentWarToDatabase() {
   const ui = SpreadsheetApp.getUi();
   try {
     const result = archiveCurrentWarToDatabase_();
-    ui.alert("✅ War saved to Railway database.\n\nMember payout rows stored: " + (result.members || 0));
+    refreshWarArchiveIndex();
+    ui.alert("✅ War saved to Railway database and War Archive refreshed.\n\nMember payout rows stored: " + (result.members || 0));
   } catch (e) {
     ui.alert("Archive failed:\n\n" + e.message);
   }
