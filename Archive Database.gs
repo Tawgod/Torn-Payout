@@ -93,6 +93,19 @@ function archiveApiRequest_(path, options) {
   return body;
 }
 
+function tornApiRequest_(scope, id, selections) {
+  const cfg = getArchiveDatabaseConfig_();
+  const params = [
+    "faction=" + encodeURIComponent(cfg.factionKey),
+    "scope=" + encodeURIComponent(scope),
+    "selections=" + encodeURIComponent(selections)
+  ];
+  if (id !== null && id !== undefined && String(id).trim() !== "") {
+    params.push("id=" + encodeURIComponent(String(id).trim()));
+  }
+  return archiveApiRequest_("/api/torn?" + params.join("&"));
+}
+
 function dashboardLabelMap_(sheet) {
   const data = sheet.getDataRange().getValues();
   const map = {};
