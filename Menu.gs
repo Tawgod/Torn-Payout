@@ -6,6 +6,7 @@ function onOpen() {
     .addItem('Refresh War Archive Index', 'refreshWarArchiveIndex')
     .addItem('Load Selected Prior War', 'loadSelectedArchivedWar')
     .addItem('Load Prior War by ID', 'loadArchivedWarByIdPrompt')
+    .addItem('Clear Current Payout Snapshot (TEST)', 'clearCurrentArchiveSnapshotForTest')
     .addSeparator()
     .addItem('Save Current War to Database', 'archiveCurrentWarToDatabase')
     .addItem('Publish Current Payout to Web', 'publishCurrentPayoutToWeb')
