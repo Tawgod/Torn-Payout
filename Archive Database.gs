@@ -59,6 +59,36 @@ function configureArchiveDatabase() {
   ui.alert("✅ Railway archive database configured for this spreadsheet.");
 }
 
+function testRailwayTornConnection() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const cfg = getArchiveDatabaseConfig_();
+
+    // Authenticated archive API test.
+    const archive = archiveApiRequest_("/api/wars?faction=" + encodeURIComponent(cfg.factionKey) + "&limit=1");
+
+    // Read-only Torn API test through Railway.
+    const torn = tornApiRequest_("faction", "", "basic");
+    if (torn.error) throw new Error(torn.error.error || torn.error);
+
+    const memberCount = torn.members ? Object.keys(torn.members).length : 0;
+    const factionName = torn.name || torn.faction_name || cfg.factionKey;
+    const factionId = torn.ID || torn.id || torn.faction_id || "";
+
+    ui.alert(
+      "✅ Test environment connection passed",
+      "Railway database API: connected\n" +
+      "Torn API via Railway: connected\n" +
+      "Faction: " + factionName + (factionId ? " [" + factionId + "]" : "") + "\n" +
+      "Members returned: " + memberCount + "\n" +
+      "Archive records currently visible in staging: " + ((archive.wars || []).length ? "1+" : "0"),
+      ui.ButtonSet.OK
+    );
+  } catch (e) {
+    ui.alert("❌ Test connection failed\n\n" + e.message);
+  }
+}
+
 function getArchiveDatabaseConfig_() {
   const props = PropertiesService.getDocumentProperties();
   const cfg = {
