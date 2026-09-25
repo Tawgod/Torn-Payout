@@ -416,6 +416,50 @@ function refreshWarArchiveIndex() {
   }
 }
 
+
+function clearCurrentArchiveSnapshotForTest() {
+  const ui = SpreadsheetApp.getUi();
+  const answer = ui.alert(
+    "Clear Current Payout Snapshot?",
+    "This test-only helper clears the current Payouts member rows and archive-related Dashboard values so you can verify that loading an archived war really restores them. Raw attack/RD data is not cleared.",
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const payoutSheet = ss.getSheetByName(SETTINGS.payoutSheet);
+  const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
+
+  if (payoutSheet && payoutSheet.getLastRow() >= 3) {
+    payoutSheet.getRange(
+      3,
+      1,
+      payoutSheet.getLastRow() - 2,
+      payoutSheet.getLastColumn()
+    ).clearContent();
+  }
+
+  if (dashSheet) {
+    [
+      ["Enemy Faction Name", ""],
+      ["Enemy Faction ID", ""],
+      ["War ID", ""],
+      ["War Report ID", ""],
+      ["Outcome (Result)", ""],
+      ["Termed?", ""],
+      ["Total War Hits", ""],
+      ["War Score", ""],
+      ["Total Revenue", ""],
+      ["Caches / Items Won", ""],
+      ["Official War Start", ""],
+      ["Official War End", ""]
+    ].forEach(pair => setDashboardValueByLabel_(dashSheet, pair[0], pair[1]));
+  }
+
+  SpreadsheetApp.flush();
+  ui.alert("✅ Current payout/archive snapshot cleared for restore testing. Raw attack data was left untouched.");
+}
+
 function loadSelectedArchivedWar() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const active = ss.getActiveSheet();
