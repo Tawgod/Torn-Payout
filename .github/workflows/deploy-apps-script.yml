@@ -1,0 +1,89 @@
+name: Deploy Apps Script
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deployment target
+        required: true
+        type: choice
+        options:
+          - test
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-test:
+    if: ${{ inputs.target == 'test' }}
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Prepare Apps Script source
+        run: |
+          mkdir -p .deploy/apps-script
+          cp ./*.gs .deploy/apps-script/
+          cp appsscript.json .deploy/apps-script/
+          printf '%s' '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+          cat > .deploy/apps-script/.clasp.json <<EOF
+          {"scriptId":"${{ secrets.APPS_SCRIPT_TEST_ID }}","rootDir":"."}
+          EOF
+
+      - name: Validate deployment secrets
+        run: |
+          test -s ~/.clasprc.json || { echo "Missing CLASPRC_JSON"; exit 1; }
+          test -n "${{ secrets.APPS_SCRIPT_TEST_ID }}" || { echo "Missing APPS_SCRIPT_TEST_ID"; exit 1; }
+
+      - name: Push to Test Sheet
+        working-directory: .deploy/apps-script
+        run: clasp push --force
+
+  deploy-production:
+    if: ${{ inputs.target == 'production' }}
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      matrix:
+        include:
+          - name: Ironsides
+            script_secret: APPS_SCRIPT_IRONSIDES_ID
+          - name: Resolute
+            script_secret: APPS_SCRIPT_RESOLUTE_ID
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Prepare Apps Script source
+        env:
+          TARGET_SCRIPT_ID: ${{ matrix.script_secret == 'APPS_SCRIPT_IRONSIDES_ID' && secrets.APPS_SCRIPT_IRONSIDES_ID || secrets.APPS_SCRIPT_RESOLUTE_ID }}
+        run: |
+          mkdir -p .deploy/apps-script
+          cp ./*.gs .deploy/apps-script/
+          cp appsscript.json .deploy/apps-script/
+          printf '%s' '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+          test -n "$TARGET_SCRIPT_ID" || { echo "Missing script ID for ${{ matrix.name }}"; exit 1; }
+          cat > .deploy/apps-script/.clasp.json <<EOF
+          {"scriptId":"$TARGET_SCRIPT_ID","rootDir":"."}
+          EOF
+
+      - name: Push to ${{ matrix.name }}
+        working-directory: .deploy/apps-script
+        run: clasp push --force
