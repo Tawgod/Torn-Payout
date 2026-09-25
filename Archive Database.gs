@@ -614,11 +614,23 @@ function migrateLegacyGoogleArchivesToDatabase() {
           }
         };
 
-        archiveApiRequest_("/api/wars", {
+        const saveResult = archiveApiRequest_("/api/wars", {
           method: "post",
           contentType: "application/json",
           payload: JSON.stringify(payload)
         });
+
+        if (publicRows && saveResult && saveResult.id) {
+          archiveApiRequest_("/api/records/" + encodeURIComponent(saveResult.id) + "/publish", {
+            method: "post",
+            contentType: "application/json",
+            payload: JSON.stringify({
+              faction_key: cfg.factionKey,
+              public_title: enemyName
+            })
+          });
+        }
+
         migrated++;
       } catch (e) {
         failed.push(sheetName + ": " + e.message);
