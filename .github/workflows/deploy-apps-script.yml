@@ -37,13 +37,12 @@ jobs:
           cp appsscript.json .deploy/apps-script/
           printf '%s' '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
           cat > .deploy/apps-script/.clasp.json <<EOF
-          {"scriptId":"${{ secrets.APPS_SCRIPT_TEST_ID }}","rootDir":"."}
+          {"scriptId":"1k8GY6kOejRDWjJqrpF2_txw0SkeCo5ETX4aarGgqqfK_VJAoe3PCQw3d","rootDir":"."}
           EOF
 
       - name: Validate deployment secrets
         run: |
           test -s ~/.clasprc.json || { echo "Missing CLASPRC_JSON"; exit 1; }
-          test -n "${{ secrets.APPS_SCRIPT_TEST_ID }}" || { echo "Missing APPS_SCRIPT_TEST_ID"; exit 1; }
 
       - name: Push to Test Sheet
         working-directory: .deploy/apps-script
