@@ -1,13 +1,6 @@
 function fetchActiveWarDetails() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue();
-
-  if (!apiKey) {
-    ss.toast("Error: No API Key found in Config!B1", "System", 5);
-    return;
-  }
   if (!dashSheet) {
     ss.toast("Please run 'Rebuild Dashboard' first.", "System", 5);
     return;
@@ -15,8 +8,7 @@ function fetchActiveWarDetails() {
 
   let myFactionId;
   try {
-    const userUrl = `https://api.torn.com/user/?selections=profile&key=${apiKey}`;
-    const userRes = JSON.parse(UrlFetchApp.fetch(userUrl).getContentText());
+    const userRes = tornApiRequest_("user", "", "profile");
     if (userRes.error) throw new Error(userRes.error.error);
     myFactionId = userRes.faction.faction_id.toString();
   } catch (e) {
@@ -24,8 +16,13 @@ function fetchActiveWarDetails() {
     return;
   }
 
-  const factionUrl = `https://api.torn.com/faction/?selections=basic&key=${apiKey}`;
-  const factionRes = JSON.parse(UrlFetchApp.fetch(factionUrl, { muteHttpExceptions: true }).getContentText());
+  let factionRes;
+  try {
+    factionRes = tornApiRequest_("faction", "", "basic");
+  } catch (e) {
+    ss.toast("Railway/Torn API error: " + e.message, "System", 5);
+    return;
+  }
 
   if (factionRes.error) {
     ss.toast(`Torn API Error: ${factionRes.error.error}`, "System", 5);
