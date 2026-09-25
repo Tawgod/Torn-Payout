@@ -1,21 +1,20 @@
 function checkWarEnd() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
   
-  if (!configSheet || !dashSheet) return;
+  if (!dashSheet) return;
   
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue();
   const warId = dashSheet.getRange("C5").getValue(); // NOW READS FROM DASHBOARD
 
-  if (!apiKey || !warId || warId === "No Data" || warId === "") return;
+  if (!warId || warId === "No Data" || warId === "") return;
 
   const currentResult = dashSheet.getRange("C9").getValue();
   if (currentResult === "Victory" || currentResult === "Defeat") return;
 
-  const warUrl = `https://api.torn.com/torn/${warId}?selections=rankedwars&key=${apiKey}`;
-  const warRes = UrlFetchApp.fetch(warUrl, { muteHttpExceptions: true });
-  const warJson = JSON.parse(warRes.getContentText());
+  let warJson;
+  try {
+    warJson = tornApiRequest_("torn", warId, "rankedwars");
+  } catch (e) { return; }
 
   if (warJson.error || !warJson.rankedwars || !warJson.rankedwars[warId]) return;
 
@@ -24,8 +23,7 @@ function checkWarEnd() {
   
   let myFactionId;
   try {
-    const userUrl = `https://api.torn.com/user/?selections=profile&key=${apiKey}`;
-    myFactionId = JSON.parse(UrlFetchApp.fetch(userUrl).getContentText()).faction.faction_id.toString();
+    myFactionId = tornApiRequest_("user", "", "profile").faction.faction_id.toString();
   } catch(e) { return; }
 
   const winnerId = warData.war.winner.toString();
@@ -36,8 +34,7 @@ function checkWarEnd() {
   const myRewards = warData.factions[myFactionId]?.rewards?.items;
 
   if (myRewards && Object.keys(myRewards).length > 0) {
-    const itemUrl = `https://api.torn.com/torn/?selections=items&key=${apiKey}`;
-    const itemRes = JSON.parse(UrlFetchApp.fetch(itemUrl).getContentText());
+    const itemRes = tornApiRequest_("torn", "", "items");
     const allItems = itemRes.items || {};
 
     let cacheArr = [];
