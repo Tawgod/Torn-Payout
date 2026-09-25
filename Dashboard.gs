@@ -8,13 +8,7 @@ function fetchOfficialReports() {
   
   if (!dashSheet || !configSheet) return;
   
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue().toString().trim();
   const rawConfigFactionId = configSheet.getRange(SETTINGS.factionIdCell || "B7").getValue().toString().trim();
-  
-  if (!apiKey) {
-    SpreadsheetApp.getUi().alert("Missing API Key in Config Sheet.");
-    return;
-  }
   
   let allData = dashSheet.getDataRange().getValues();
   
@@ -61,9 +55,7 @@ function fetchOfficialReports() {
   // --- CACHE VALUATION ---
   let itemValueMap = {};
   try {
-    let itemsUrl = `https://api.torn.com/torn/?selections=items&key=${apiKey}`;
-    let itemsRes = UrlFetchApp.fetch(itemsUrl, { muteHttpExceptions: true });
-    let itemsJson = JSON.parse(itemsRes.getContentText());
+    let itemsJson = tornApiRequest_("torn", "", "items");
     if (itemsJson.items) {
       for (let id in itemsJson.items) {
         itemValueMap[itemsJson.items[id].name] = itemsJson.items[id].market_value || 0;
@@ -74,9 +66,7 @@ function fetchOfficialReports() {
   // --- OFFICIAL WAR REPORT ---
   if (warId) {
     ss.toast("Fetching War Report...", "System", 3);
-    let warUrl = `https://api.torn.com/torn/${warId}?selections=rankedwarreport&key=${apiKey}`;
-    let res = UrlFetchApp.fetch(warUrl, { muteHttpExceptions: true });
-    let json = JSON.parse(res.getContentText());
+    let json = tornApiRequest_("torn", warId, "rankedwarreport");
     
     let warSheetName = "Official War Report";
     let warSheet = ss.getSheetByName(warSheetName);
@@ -129,9 +119,7 @@ function fetchOfficialReports() {
 
       let exactLogString = "";
       try {
-        let newsUrl = `https://api.torn.com/faction/?selections=news&key=${apiKey}`;
-        let newsRes = UrlFetchApp.fetch(newsUrl, { muteHttpExceptions: true });
-        let newsJson = JSON.parse(newsRes.getContentText());
+        let newsJson = tornApiRequest_("faction", "", "news");
         if (newsJson.news) {
           for (let n in newsJson.news) {
             let text = newsJson.news[n].news || "";
@@ -244,11 +232,8 @@ function fetchOfficialReports() {
 
     for (let i = 0; i < chainIds.length; i++) {
       let chainId = chainIds[i];
-      let chainUrl = `https://api.torn.com/torn/${chainId}?selections=chainreport&key=${apiKey}`;
-      
       try {
-        let res = UrlFetchApp.fetch(chainUrl, { muteHttpExceptions: true });
-        let json = JSON.parse(res.getContentText());
+        let json = tornApiRequest_("torn", chainId, "chainreport");
         
         if (json.chainreport) {
           let cr = json.chainreport;
@@ -405,10 +390,7 @@ function refreshDashboard() {
 
   if (!dashSheet || !configSheet) return;
 
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell || "B3").getValue().toString().trim();
   const myFactionId = configSheet.getRange(SETTINGS.factionIdCell || "B7").getValue().toString().trim();
-
-  if (!apiKey) return;
 
   ss.toast("Pinging Torn API & Scanning Data...", "System", 3);
 
@@ -451,9 +433,7 @@ function refreshDashboard() {
   // 1. UPDATE ACTIVE WAR DATA
   try {
     if (manualWarId) {
-      let url = `https://api.torn.com/torn/${manualWarId}?selections=rankedwarreport&key=${apiKey}`;
-      let response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-      let json = JSON.parse(response.getContentText());
+      let json = tornApiRequest_("torn", manualWarId, "rankedwarreport");
 
       if (json.rankedwarreport && json.rankedwarreport.factions) {
         let factions = json.rankedwarreport.factions;
@@ -490,9 +470,7 @@ function refreshDashboard() {
         }
       }
     } else {
-      let url = `https://api.torn.com/faction/?selections=basic&key=${apiKey}`;
-      let response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-      let json = JSON.parse(response.getContentText());
+      let json = tornApiRequest_("faction", "", "basic");
 
       if (json.ranked_wars && Object.keys(json.ranked_wars).length > 0) {
         let activeWarId = Object.keys(json.ranked_wars)[0];
