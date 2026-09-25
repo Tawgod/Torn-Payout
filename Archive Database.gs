@@ -56,7 +56,27 @@ function configureArchiveDatabase() {
     ARCHIVE_FACTION_KEY: factionKey
   });
 
-  ui.alert("✅ Railway archive database configured for this spreadsheet.");
+  try {
+    const response = UrlFetchApp.fetch(
+      apiUrl + "/api/wars?faction=" + encodeURIComponent(factionKey) + "&limit=1",
+      {
+        muteHttpExceptions: true,
+        headers: { Authorization: "Bearer " + token }
+      }
+    );
+    const code = response.getResponseCode();
+    if (code < 200 || code >= 300) {
+      throw new Error("HTTP " + code + ": " + response.getContentText());
+    }
+    ui.alert("✅ Railway archive database connection verified for this spreadsheet.");
+  } catch (e) {
+    props.deleteProperty("ARCHIVE_API_TOKEN");
+    ui.alert(
+      "❌ Railway connection failed.\n\n" +
+      "The URL/faction were saved, but the token was not kept because authentication failed.\n\n" +
+      e.message
+    );
+  }
 }
 
 function testRailwayTornConnection() {
