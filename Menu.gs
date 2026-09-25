@@ -2,6 +2,7 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   const dbMenu = ui.createMenu('🗄️ Database Archive')
     .addItem('Configure Railway Database', 'configureArchiveDatabase')
+    .addItem('Test Railway + Torn Connection', 'testRailwayTornConnection')
     .addItem('Refresh War Archive Index', 'refreshWarArchiveIndex')
     .addItem('Load Selected Prior War', 'loadSelectedArchivedWar')
     .addItem('Load Prior War by ID', 'loadArchivedWarByIdPrompt')
