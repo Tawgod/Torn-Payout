@@ -1,6 +1,6 @@
 const SETTINGS = {
   configSheet: "Config",
-  apiKeyCell: "B1",           
+  apiKeyCell: "B1",           // Legacy only: Torn API keys are now stored/used on Railway
   backendIdCell: "B2",        
   archiveIdCell: "B3",        
   targetFactionCell: "B4",    
