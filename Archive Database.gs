@@ -315,12 +315,12 @@ function refreshWarArchiveIndex() {
     sheet.setHiddenGridlines(true);
     sheet.setFrozenRows(2);
 
-    sheet.getRange("A1:I1").merge()
+    sheet.getRange("A1:J1").merge()
       .setValue("🗄️ RAILWAY WAR ARCHIVE")
       .setBackground("#444444").setFontColor("white").setFontWeight("bold")
       .setHorizontalAlignment("center");
 
-    const headers = ["War ID", "Archived", "Enemy", "Outcome", "Termed", "Total Hits", "War Score", "Total Payout", "Faction Profit"];
+    const headers = ["War ID / Legacy Key", "Archived", "Enemy", "Outcome", "Termed", "Total Hits", "War Score", "Total Payout", "Faction Profit", "Record ID"];
     sheet.getRange(2, 1, 1, headers.length).setValues([headers])
       .setBackground("#274e13").setFontColor("white").setFontWeight("bold");
 
@@ -334,7 +334,8 @@ function refreshWarArchiveIndex() {
         Number(w.total_hits || 0),
         Number(w.war_score || 0),
         Number(w.total_payout || 0),
-        Number(w.faction_profit || 0)
+        Number(w.faction_profit || 0),
+        Number(w.record_id || 0)
       ]);
       sheet.getRange(3, 1, rows.length, headers.length).setValues(rows);
       sheet.getRange(3, 2, rows.length, 1).setNumberFormat("yyyy-mm-dd HH:mm");
@@ -343,6 +344,7 @@ function refreshWarArchiveIndex() {
     }
 
     sheet.autoResizeColumns(1, headers.length);
+    try { sheet.hideColumns(10); } catch (e) {}
     ss.setActiveSheet(sheet);
     ss.toast("Archive index refreshed: " + wars.length + " wars.", "Database", 4);
   } catch (e) {
@@ -362,12 +364,31 @@ function loadSelectedArchivedWar() {
     SpreadsheetApp.getUi().alert("Select a war row first.");
     return;
   }
-  const warId = active.getRange(row, 1).getDisplayValue().trim();
-  if (!/^\d+$/.test(warId)) {
-    SpreadsheetApp.getUi().alert("That row does not contain a numeric War ID and cannot be restored as a full archived war.");
+  const recordId = active.getRange(row, 10).getValue();
+  if (!recordId) {
+    SpreadsheetApp.getUi().alert("That row does not contain a database record ID.");
     return;
   }
-  loadArchivedWarById_(warId);
+  loadArchivedRecordById_(recordId);
+}
+
+function loadArchivedRecordById_(recordId) {
+  const ui = SpreadsheetApp.getUi();
+  const answer = ui.alert(
+    "Load Archived Record?",
+    "This will replace the current Dashboard archive fields and Payouts data with the selected historical snapshot. Current RD/raw attack data will not be restored.",
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return;
+
+  try {
+    const cfg = getArchiveDatabaseConfig_();
+    const data = archiveApiRequest_("/api/records/" + encodeURIComponent(recordId) + "?faction=" + encodeURIComponent(cfg.factionKey));
+    restoreArchivedWar_(data);
+    ui.alert("✅ Archived payout snapshot restored into the workbook.");
+  } catch (e) {
+    ui.alert("Could not load archived record:\n\n" + e.message);
+  }
 }
 
 function loadArchivedWarByIdPrompt() {
