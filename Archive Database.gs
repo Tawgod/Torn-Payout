@@ -561,7 +561,15 @@ function migrateLegacyGoogleArchivesToDatabase() {
         };
 
         const archivedRaw = findPair(1, "Date Archived:");
-        const archivedAt = archivedRaw instanceof Date ? archivedRaw.toISOString() : new Date(archivedRaw).toISOString();
+        let archivedDate;
+        if (archivedRaw instanceof Date) {
+          archivedDate = archivedRaw;
+        } else if (typeof archivedRaw === "number") {
+          archivedDate = new Date(Date.UTC(1899, 11, 30) + archivedRaw * 86400000);
+        } else {
+          archivedDate = new Date(archivedRaw);
+        }
+        const archivedAt = isNaN(archivedDate.getTime()) ? null : archivedDate.toISOString();
 
         const archiveHeaders = (data[6] || []).slice(2);
         while (archiveHeaders.length && archiveHeaders[archiveHeaders.length - 1] === "") archiveHeaders.pop();
