@@ -194,7 +194,7 @@ app.get("/api/wars", async (req, res) => {
   }
 
   const result = await pool.query(
-    `SELECT war_id, legacy_key, enemy_name, archived_at, outcome, termed,
+    `SELECT id AS record_id, war_id, legacy_key, enemy_name, archived_at, outcome, termed,
             total_hits, total_war_hits, war_score, total_revenue,
             total_payout, faction_profit, caches, source
        FROM archive_wars
@@ -204,6 +204,52 @@ app.get("/api/wars", async (req, res) => {
     params
   );
   res.json({ faction_key: factionKey, wars: result.rows });
+});
+
+async function warResponseByRecordId(recordId) {
+  const warResult = await pool.query(
+    `SELECT * FROM archive_wars WHERE id=$1`,
+    [recordId]
+  );
+  if (!warResult.rowCount) return null;
+
+  const war = warResult.rows[0];
+  const memberResult = await pool.query(
+    `SELECT row_values FROM archive_member_payouts
+      WHERE war_record_id=$1 ORDER BY row_order`,
+    [war.id]
+  );
+
+  return {
+    record_id: war.id,
+    faction_key: war.faction_key,
+    war_id: war.war_id,
+    legacy_key: war.legacy_key,
+    enemy_name: war.enemy_name,
+    enemy_faction_id: war.enemy_faction_id,
+    archived_at: war.archived_at,
+    summary: war.summary,
+    source: war.source,
+    payout: {
+      top_row: war.payout_top_row,
+      headers: war.payout_headers,
+      rows: memberResult.rows.map(r => r.row_values)
+    }
+  };
+}
+
+app.get("/api/records/:recordId", async (req, res) => {
+  const factionKey = asText(req.query.faction);
+  const recordId = asInt(req.params.recordId);
+  if (!factionKey || recordId === null) {
+    return res.status(400).json({ error: "valid faction and record ID are required" });
+  }
+
+  const record = await warResponseByRecordId(recordId);
+  if (!record || record.faction_key !== factionKey) {
+    return res.status(404).json({ error: "Archive record not found" });
+  }
+  res.json(record);
 });
 
 app.get("/api/wars/:warId", async (req, res) => {
