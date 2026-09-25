@@ -1,11 +1,15 @@
 name: Deploy Apps Script
 
 on:
+  push:
+    branches:
+      - railway-db-migration
   workflow_dispatch:
     inputs:
       target:
         description: Deployment target
         required: true
+        default: test
         type: choice
         options:
           - test
@@ -16,7 +20,7 @@ permissions:
 
 jobs:
   deploy-test:
-    if: ${{ inputs.target == 'test' }}
+    if: ${{ github.event_name == 'push' || inputs.target == 'test' }}
     runs-on: ubuntu-latest
     environment: test
     steps:
