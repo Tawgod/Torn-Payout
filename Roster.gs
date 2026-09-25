@@ -1,17 +1,13 @@
 function updateRoster() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue();
-
-  if (!apiKey) {
-    ss.toast("Error: No API Key found in Config!B1", "System", 5);
+  // 1. Fetch Faction Basic Data through Railway. The Torn API key never lives in the sheet.
+  let json;
+  try {
+    json = tornApiRequest_("faction", "", "basic");
+  } catch (e) {
+    ss.toast("Railway/Torn API error: " + e.message, "System", 5);
     return;
   }
-
-  // 1. Fetch Faction Basic Data (Contains the member list)
-  const factionUrl = `https://api.torn.com/faction/?selections=basic&key=${apiKey}`;
-  const response = UrlFetchApp.fetch(factionUrl, { muteHttpExceptions: true });
-  const json = JSON.parse(response.getContentText());
 
   if (json.error) {
     ss.toast(`Torn API Error: ${json.error.error}`, "System", 5);
