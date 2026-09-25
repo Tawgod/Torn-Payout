@@ -91,11 +91,22 @@ function migrateLegacyPublicOnlyWarsToDatabase() {
           }
         };
 
-        archiveApiRequest_("/api/wars", {
+        const saveResult = archiveApiRequest_("/api/wars", {
           method: "post",
           contentType: "application/json",
           payload: JSON.stringify(payload)
         });
+
+        if (saveResult && saveResult.id) {
+          archiveApiRequest_("/api/records/" + encodeURIComponent(saveResult.id) + "/publish", {
+            method: "post",
+            contentType: "application/json",
+            payload: JSON.stringify({
+              faction_key: cfg.factionKey,
+              public_title: name
+            })
+          });
+        }
 
         imported++;
         existingEnemies[enemyKey] = true;
