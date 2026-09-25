@@ -12,6 +12,8 @@ const pool = new Pool({
 });
 
 const API_TOKEN = process.env.ARCHIVE_API_TOKEN || "";
+const TORN_PROXY_TOKEN = process.env.TORN_PROXY_TOKEN || "";
+const TORN_PROXY_UPSTREAM_URL = (process.env.TORN_PROXY_UPSTREAM_URL || "").replace(/\/+$/, "");
 const PORT = Number(process.env.PORT || 3000);
 
 function requireAuth(req, res, next) {
@@ -63,6 +65,46 @@ const TORN_ALLOWED_SELECTIONS = new Set([
   "items", "rankedwarreport", "chainreport", "news", "basic",
   "fundsnews", "profile", "rankedwars"
 ]);
+
+function validateTornRequest(scope, selectionsRaw) {
+  if (!scope || !selectionsRaw) return { error: "scope and selections are required" };
+  if (!TORN_ALLOWED_SCOPES.has(scope)) return { error: "Unsupported Torn API scope" };
+  const selections = selectionsRaw.split(",").map(s => s.trim()).filter(Boolean);
+  if (!selections.length || selections.some(s => !TORN_ALLOWED_SELECTIONS.has(s))) {
+    return { error: "Unsupported Torn API selection" };
+  }
+  return { selections };
+}
+
+async function fetchTornWithKey(apiKey, scope, id, selections) {
+  let url = "https://api.torn.com/" + encodeURIComponent(scope) + "/";
+  if (id) url += encodeURIComponent(id);
+  url += "?selections=" + encodeURIComponent(selections.join(",")) + "&key=" + encodeURIComponent(apiKey);
+
+  const response = await fetch(url, { headers: { "User-Agent": "Torn-Payout-Railway/1.0" } });
+  const bodyText = await response.text();
+  let body;
+  try { body = JSON.parse(bodyText); } catch (_e) { body = { error: { error: bodyText || "Invalid Torn API response" } }; }
+  return { status: response.status, ok: response.ok, body };
+}
+
+async function fetchTornFromUpstream(factionKey, scope, id, selections) {
+  if (!TORN_PROXY_UPSTREAM_URL || !TORN_PROXY_TOKEN) return null;
+  const qs = new URLSearchParams({
+    faction: factionKey,
+    scope,
+    selections: selections.join(",")
+  });
+  if (id) qs.set("id", id);
+
+  const response = await fetch(TORN_PROXY_UPSTREAM_URL + "/internal/torn?" + qs.toString(), {
+    headers: { Authorization: "Bearer " + TORN_PROXY_TOKEN }
+  });
+  const bodyText = await response.text();
+  let body;
+  try { body = JSON.parse(bodyText); } catch (_e) { body = { error: bodyText || "Invalid upstream response" }; }
+  return { status: response.status, ok: response.ok, body };
+}
 
 async function initializeSchema() {
   const schemaPath = path.join(__dirname, "schema.sql");
@@ -358,6 +400,35 @@ app.get("/public/:faction/:recordId", async (req, res) => {
   }
 });
 
+app.get("/internal/torn", async (req, res) => {
+  const bearer = (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!TORN_PROXY_TOKEN || bearer !== TORN_PROXY_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const factionKey = asText(req.query.faction);
+    const scope = asText(req.query.scope);
+    const id = asText(req.query.id);
+    const selectionsRaw = asText(req.query.selections);
+    if (!factionKey) return res.status(400).json({ error: "faction is required" });
+
+    const valid = validateTornRequest(scope, selectionsRaw);
+    if (valid.error) return res.status(400).json({ error: valid.error });
+
+    const apiKey = tornApiKeyForFaction(factionKey);
+    if (!apiKey) {
+      return res.status(503).json({ error: "No Railway Torn API key configured for faction " + factionKey });
+    }
+
+    const result = await fetchTornWithKey(apiKey, scope, id, valid.selections);
+    return res.status(result.status).json(result.body);
+  } catch (err) {
+    console.error(err);
+    return res.status(502).json({ error: "Internal Torn proxy failed" });
+  }
+});
+
 app.use("/api", requireAuth);
 
 app.get("/api/torn", async (req, res) => {
@@ -367,36 +438,24 @@ app.get("/api/torn", async (req, res) => {
     const id = asText(req.query.id);
     const selectionsRaw = asText(req.query.selections);
 
-    if (!factionKey || !scope || !selectionsRaw) {
-      return res.status(400).json({ error: "faction, scope, and selections are required" });
-    }
-    if (!TORN_ALLOWED_SCOPES.has(scope)) {
-      return res.status(400).json({ error: "Unsupported Torn API scope" });
-    }
+    if (!factionKey) return res.status(400).json({ error: "faction is required" });
 
-    const selections = selectionsRaw.split(",").map(s => s.trim()).filter(Boolean);
-    if (!selections.length || selections.some(s => !TORN_ALLOWED_SELECTIONS.has(s))) {
-      return res.status(400).json({ error: "Unsupported Torn API selection" });
-    }
+    const valid = validateTornRequest(scope, selectionsRaw);
+    if (valid.error) return res.status(400).json({ error: valid.error });
 
     const apiKey = tornApiKeyForFaction(factionKey);
-    if (!apiKey) {
-      return res.status(503).json({ error: "No Railway Torn API key configured for faction " + factionKey });
+    let result;
+
+    if (apiKey) {
+      result = await fetchTornWithKey(apiKey, scope, id, valid.selections);
+    } else {
+      result = await fetchTornFromUpstream(factionKey, scope, id, valid.selections);
+      if (!result) {
+        return res.status(503).json({ error: "No Railway Torn API key or upstream proxy configured for faction " + factionKey });
+      }
     }
 
-    let url = "https://api.torn.com/" + encodeURIComponent(scope) + "/";
-    if (id) url += encodeURIComponent(id);
-    url += "?selections=" + encodeURIComponent(selections.join(",")) + "&key=" + encodeURIComponent(apiKey);
-
-    const response = await fetch(url, { headers: { "User-Agent": "Torn-Payout-Railway/1.0" } });
-    const bodyText = await response.text();
-    let body;
-    try { body = JSON.parse(bodyText); } catch (_e) { body = { error: { error: bodyText || "Invalid Torn API response" } }; }
-
-    if (!response.ok) {
-      return res.status(response.status).json(body);
-    }
-    return res.json(body);
+    return res.status(result.status).json(result.body);
   } catch (err) {
     console.error(err);
     return res.status(502).json({ error: "Torn API proxy failed" });
