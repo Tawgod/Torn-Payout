@@ -50,3 +50,9 @@ Historical RD/raw attacks are not reconstructed because the legacy archive workb
 ARCHIVE TO DATABASE & RESET snapshots the current war to Postgres, waits for a successful API response, and only then resets the local workbook. If the database write fails, the workbook is not reset.
 
 The old Google Sheet archive/publish commands remain available as Legacy commands during the transition.
+
+## Backup policy
+
+The legacy Ironsides and Resolute War Archive and Public Payout Google workbooks are read-only migration sources for this project. The Railway migration does not delete, clear, rename, replace, or write back to them. Existing legacy Apps Script commands remain available separately so the original sheets can continue serving as independent backups during validation.
+
+The Railway public site is additive. Publishing to the web changes only Postgres publication metadata and does not alter the Google public payout workbook.
