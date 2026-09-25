@@ -73,7 +73,7 @@ jobs:
 
       - name: Prepare Apps Script source
         env:
-          TARGET_SCRIPT_ID: ${{ matrix.script_secret == 'APPS_SCRIPT_IRONSIDES_ID' && secrets.APPS_SCRIPT_IRONSIDES_ID || secrets.APPS_SCRIPT_RESOLUTE_ID }}
+          TARGET_SCRIPT_ID: ${{ secrets[matrix.script_secret] }}
         run: |
           mkdir -p .deploy/apps-script
           cp ./*.gs .deploy/apps-script/
