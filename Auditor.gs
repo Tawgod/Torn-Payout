@@ -1,6 +1,5 @@
 function runPayoutAudit() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
   const finalSheet = ss.getSheetByName(SETTINGS.finalSheet);
 
   if (!finalSheet) {
@@ -8,22 +7,16 @@ function runPayoutAudit() {
     return;
   }
 
-  const apiKey = configSheet.getRange(SETTINGS.apiKeyCell).getValue().toString().trim();
-  if (!apiKey) return;
-
   ss.toast("Scanning Faction Bank Logs...", "System", 3);
 
-  // 1. Fetch Faction "Funds News" (The Bank Logs)
-  const url = `https://api.torn.com/faction/?selections=fundsnews&key=${apiKey}`;
-  let response;
+  // 1. Fetch Faction "Funds News" through Railway so the Torn API key stays server-side.
+  let json;
   try {
-    response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    json = tornApiRequest_("faction", "", "fundsnews");
   } catch(e) {
-    ss.toast("API Connection Failed.", "Error", 5);
+    ss.toast("Railway/Torn API connection failed.", "Error", 5);
     return;
   }
-
-  const json = JSON.parse(response.getContentText());
   if (json.error || !json.fundsnews) {
     ss.toast("Could not read bank logs. Ensure your API Key has bank viewing permissions.", "Error", 5);
     return;
