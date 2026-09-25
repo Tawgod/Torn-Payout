@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS archive_wars (
   payout_top_row JSONB NOT NULL DEFAULT '[]'::jsonb,
   payout_headers JSONB NOT NULL DEFAULT '[]'::jsonb,
   source TEXT NOT NULL DEFAULT 'apps-script',
+  published_at TIMESTAMPTZ,
+  public_title TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -52,3 +54,7 @@ CREATE INDEX IF NOT EXISTS archive_member_member_id_idx
 
 CREATE INDEX IF NOT EXISTS archive_member_war_idx
   ON archive_member_payouts (war_record_id, row_order);
+
+ALTER TABLE archive_wars ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+ALTER TABLE archive_wars ADD COLUMN IF NOT EXISTS public_title TEXT;
+CREATE INDEX IF NOT EXISTS archive_wars_public_idx ON archive_wars (faction_key, published_at DESC) WHERE published_at IS NOT NULL;
