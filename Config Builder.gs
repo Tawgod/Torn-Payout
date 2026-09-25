@@ -8,7 +8,7 @@ function buildConfigTab() {
   
   let configSheet = ss.getSheetByName(configSheetName);
   
-  // If the sheet already exists, we do nothing to avoid overwriting your current API Keys/IDs.
+  // If the sheet already exists, we do nothing to avoid overwriting your current IDs/settings.
   if (configSheet) {
     ss.toast("Config tab already exists. Skipping build.", "Setup", 3);
     return;
@@ -19,7 +19,7 @@ function buildConfigTab() {
   
   // Define the exact layout found in your Config.csv
   const configData = [
-    ["API Key", ""],             // Cell B1
+    ["API Key (Legacy - Unused)", ""], // Cell B1 retained so existing Config row positions do not shift
     ["Attack Data", ""],         // Cell B2
     ["Archive Sheet ID", ""],    // Cell B3
     ["Target Faction ID", ""],   // Cell B4
