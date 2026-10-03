@@ -41,17 +41,22 @@ function fetchActiveWarDetails() {
   }
 
   if (enemyId && warStartUnix && activeWarId) {
-    dashSheet.getRange("C3").setValue(enemyId);
-    
-    dashSheet.getRange("C4").setValue(new Date(warStartUnix * 1000));
-    dashSheet.getRange("C4").setNumberFormat("m/d/yyyy h:mm:ss am/pm");
-    
-    // Write War ID to Dashboard instead of Config
-    dashSheet.getRange("C5").setValue(activeWarId);
-    
-    // Clear out old End-of-War stats
-    dashSheet.getRange("C9:C11").setValue(""); 
-    
+    setLabelValue_(dashSheet, "Enemy Faction ID", enemyId);
+
+    const startHit = findLabelCell_(dashSheet, "Official War Start");
+    if (startHit) {
+      startHit.valueRange.setValue(new Date(warStartUnix * 1000));
+      startHit.valueRange.setNumberFormat("m/d/yyyy h:mm:ss am/pm");
+    }
+
+    setLabelValue_(dashSheet, "War ID", activeWarId);
+    setLabelValue_(dashSheet, "War Report ID", activeWarId);
+
+    // Clear only the named end-of-war fields; layout changes won't redirect writes.
+    setLabelValue_(dashSheet, "Outcome (Result)", "Ongoing");
+    setLabelValue_(dashSheet, "Caches / Items Won", "");
+    setLabelValue_(dashSheet, "Est. Cache Value", "");
+
     ss.toast(`Setup Complete! Target: ${enemyId}`, "War Tracker", 5);
   } else {
     ss.toast("No active Ranked War found.", "War Tracker", 5);
