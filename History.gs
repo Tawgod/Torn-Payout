@@ -42,6 +42,8 @@ function logWarToHistory() {
   let factionProfit = findVal("Actual Faction Deduction") || 0; // Added Faction Profit
   
   let caches = findVal("Caches / Items Won") || "";
+  let warReportId = findVal("War Report ID") || warId || "";
+  let chainReportId = findVal("Chain Report ID") || "";
   
   if (warId === "No Data" || warId === "") {
     SpreadsheetApp.getUi().alert("No War ID found on the Dashboard. Fetch official reports first.");
@@ -57,23 +59,42 @@ function logWarToHistory() {
     let headers = [
       "Log Date", "War ID", "Enemy Name", "Enemy ID", "Outcome", "Termed", 
       "Score", "Hits", "Start", "End", "Total Revenue", "Payout Total", 
-      "Faction Profit", "Caches Won"
+      "Faction Profit", "Caches Won", "War Report", "Chain Report"
     ];
     historySheet.appendRow(headers);
-    historySheet.getRange("A1:N1").setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
+    historySheet.getRange("A1:P1").setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
     historySheet.setFrozenRows(1);
   }
 
   // Append the row mapping perfectly to the headers
   historySheet.appendRow([
     new Date(), warId, enemyName, enemyId, outcome, termed, score, hits, 
-    start, end, revenue, payoutTotal, factionProfit, caches
+    start, end, revenue, payoutTotal, factionProfit, caches, "", ""
   ]);
 
   let lastRow = historySheet.getLastRow();
   
   // Format the 3 currency columns (K, L, and M are columns 11, 12, 13)
   historySheet.getRange(lastRow, 11, 1, 3).setNumberFormat('"$ "#,##0');
+
+  const cleanWarReportId = String(warReportId || "").replace(/,/g, "").trim();
+  if (/^\d+$/.test(cleanWarReportId)) {
+    historySheet.getRange(lastRow, 15).setFormula(
+      '=HYPERLINK("https://www.torn.com/war.php?step=rankreport&rankID=' + cleanWarReportId + '","Open War Report")'
+    );
+  }
+
+  const chainIds = String(chainReportId || "").split(",").map(v => v.trim()).filter(v => /^\d+$/.test(v));
+  if (chainIds.length === 1) {
+    historySheet.getRange(lastRow, 16).setFormula(
+      '=HYPERLINK("https://www.torn.com/war.php?step=chainreport&chainID=' + chainIds[0] + '","Open Chain Report")'
+    );
+  } else if (chainIds.length > 1) {
+    historySheet.getRange(lastRow, 16).setValue(chainIds.join(", "));
+    historySheet.getRange(lastRow, 16).setNote(
+      "Multiple chain reports: " + chainIds.map(id => "https://www.torn.com/war.php?step=chainreport&chainID=" + id).join("\n")
+    );
+  }
   
   // Force text wrapping across the entire data range so caches don't overflow
   historySheet.getDataRange().setWrap(true);
