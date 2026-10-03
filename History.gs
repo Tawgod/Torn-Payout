@@ -45,10 +45,13 @@ function logWarToHistory() {
   let warReportId = findVal("War Report ID") || warId || "";
   let chainReportId = findVal("Chain Report ID") || "";
   
-  if (warId === "No Data" || warId === "") {
-    SpreadsheetApp.getUi().alert("No War ID found on the Dashboard. Fetch official reports first.");
+  const cleanChainIds = String(chainReportId || "").split(",").map(v => v.trim()).filter(v => /^\d+$/.test(v));
+  const hasWar = !(warId === "No Data" || warId === "" || warId === "Unknown");
+  if (!hasWar && !cleanChainIds.length) {
+    SpreadsheetApp.getUi().alert("No War ID or Chain Report ID found on the Dashboard. Fetch official reports first.");
     return;
   }
+  const historyRecordId = hasWar ? warId : "Chain " + cleanChainIds.join(", ");
 
   // Find the exact History Sheet
   let historySheet = ss.getSheetByName("History");
@@ -66,9 +69,14 @@ function logWarToHistory() {
     historySheet.setFrozenRows(1);
   }
 
+  // Keep report-link headers current even on older History tabs.
+  historySheet.getRange("B1").setValue("War / Chain ID");
+  historySheet.getRange("O1:P1").setValues([["War Report", "Chain Report"]])
+    .setBackground("#4a86e8").setFontColor("white").setFontWeight("bold");
+
   // Append the row mapping perfectly to the headers
   historySheet.appendRow([
-    new Date(), warId, enemyName, enemyId, outcome, termed, score, hits, 
+    new Date(), historyRecordId, enemyName, enemyId, outcome, termed, score, hits, 
     start, end, revenue, payoutTotal, factionProfit, caches, "", ""
   ]);
 
@@ -84,7 +92,7 @@ function logWarToHistory() {
     );
   }
 
-  const chainIds = String(chainReportId || "").split(",").map(v => v.trim()).filter(v => /^\d+$/.test(v));
+  const chainIds = cleanChainIds;
   if (chainIds.length === 1) {
     historySheet.getRange(lastRow, 16).setFormula(
       '=HYPERLINK("https://www.torn.com/war.php?step=chainreport&chainID=' + chainIds[0] + '","Open Chain Report")'
