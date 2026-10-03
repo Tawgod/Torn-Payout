@@ -18,11 +18,13 @@ function importWarData() {
     return;
   }
 
-  // 1. Read Time Filters from Dashboard
-  let startDateVal = dashSheet.getRange("F9").getValue();
-  let endDateVal = dashSheet.getRange("F11").getValue();
-  let startTimeStr = dashSheet.getRange("F10").getDisplayValue();
-  let endTimeStr = dashSheet.getRange("F12").getDisplayValue();
+  // 1. Read Time Filters from Dashboard by label so layout changes are safe.
+  let startDateVal = labelValue_(dashSheet, "Start Date", "");
+  let endDateVal = labelValue_(dashSheet, "End Date", "");
+  const startTimeHit = findLabelCell_(dashSheet, "Start Time");
+  const endTimeHit = findLabelCell_(dashSheet, "End Time");
+  let startTimeStr = startTimeHit ? startTimeHit.valueRange.getDisplayValue() : "";
+  let endTimeStr = endTimeHit ? endTimeHit.valueRange.getDisplayValue() : "";
 
   // --- IRONCLAD TIME FORCER ---
   let sd = new Date(startDateVal);
