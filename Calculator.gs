@@ -22,23 +22,14 @@ function runPayoutMath() {
   const safeStr = (val) => (val === null || val === undefined) ? "" : val.toString().trim();
 
   // --- 1. GET ENEMY ID, STRICT LIMITS & DASHBOARD TOGGLES ---
-  const globalHitLimit = parseInt(dashSheet.getRange("F3").getValue()) || 999999;
-  const personalWarLimit = parseInt(dashSheet.getRange("F4").getValue()) || 999999;
-  const personalChainLimit = parseInt(dashSheet.getRange("F5").getValue()) || 999999;
+  const globalHitLimit = parseInt(labelValue_(dashSheet, "Total Hits (Max Limit)", "")) || 999999;
+  const personalWarLimit = parseInt(labelValue_(dashSheet, "Max War Hits", "")) || 999999;
+  const personalChainLimit = parseInt(labelValue_(dashSheet, "Max Chain Hits", "")) || 999999;
 
   let dashData = dashSheet.getDataRange().getValues();
-  let targetFactionId = "";
-  let payPostWarStr = "Yes";
-  let officialWarEndStr = "";
-  
-  for (let r = 0; r < dashData.length; r++) {
-    for (let c = 0; c < dashData[r].length; c++) {
-      let cellText = safeStr(dashData[r][c]).toLowerCase();
-      if (cellText === "enemy faction id" && c + 1 < dashData[r].length) targetFactionId = cleanId(dashData[r][c+1]);
-      if (cellText === "pay post-war chain?" && c + 1 < dashData[r].length) payPostWarStr = safeStr(dashData[r][c+1]);
-      if (cellText === "official war end" && c + 1 < dashData[r].length) officialWarEndStr = safeStr(dashData[r][c+1]);
-    }
-  }
+  let targetFactionId = cleanId(labelValue_(dashSheet, "Enemy Faction ID", ""));
+  let payPostWarStr = safeStr(labelValue_(dashSheet, "Pay Post-War Chain?", "Yes"));
+  let officialWarEndStr = safeStr(labelValue_(dashSheet, "Official War End", ""));
 
   if (!targetFactionId) {
     ss.toast("No Enemy Faction ID found. Running in Chain-Only mode.", "Notice", 4);
@@ -67,17 +58,28 @@ function runPayoutMath() {
   if (officialWarSheet) {
     const warData = officialWarSheet.getDataRange().getValues();
     let startRow = -1;
+    let warHeaderMap = null;
     for (let i = 0; i < warData.length; i++) {
-      if (warData[i][0] === "Faction ID" && warData[i][2] === "Member ID") { startRow = i + 1; break; }
+      const candidate = headerMapFromRow_(warData[i]);
+      if (candidate["faction id"] !== undefined && candidate["member id"] !== undefined) {
+        startRow = i + 1;
+        warHeaderMap = candidate;
+        break;
+      }
     }
-    if (startRow !== -1) {
+    if (startRow !== -1 && warHeaderMap) {
+      const facCol = headerIndex_(warHeaderMap, "Faction ID", true);
+      const memCol = headerIndex_(warHeaderMap, "Member ID", true);
+      const nameCol = headerIndex_(warHeaderMap, "Member Name", true);
+      const attacksCol = headerIndex_(warHeaderMap, ["Total Attacks", "Attacks"], true);
+      const scoreCol = headerIndex_(warHeaderMap, "War Score", true);
       for (let i = startRow; i < warData.length; i++) {
-        let facId = cleanId(warData[i][0]);
-        let memId = cleanId(warData[i][2]);
+        let facId = cleanId(warData[i][facCol]);
+        let memId = cleanId(warData[i][memCol]);
         if (facId === myFactionId && memId !== "") {
-          if (!stats[memId]) stats[memId] = initStats(safeStr(warData[i][3]));
-          stats[memId].wh += parseInt(warData[i][4]) || 0;
-          stats[memId].ws += parseFloat(warData[i][5]) || 0;
+          if (!stats[memId]) stats[memId] = initStats(safeStr(warData[i][nameCol]));
+          stats[memId].wh += parseInt(warData[i][attacksCol]) || 0;
+          stats[memId].ws += parseFloat(warData[i][scoreCol]) || 0;
         }
       }
     }
@@ -86,21 +88,35 @@ function runPayoutMath() {
   if (officialChainSheet && officialChainSheet.getLastRow() > 6) {
     const chainData = officialChainSheet.getDataRange().getValues();
     let startRow = -1;
+    let chainHeaderMap = null;
     for(let i = 0; i < chainData.length; i++) {
-      if(chainData[i][0] === "Member ID" && chainData[i][1] === "Total Attacks") { startRow = i + 1; break; }
+      const candidate = headerMapFromRow_(chainData[i]);
+      if(candidate["member id"] !== undefined && candidate["total attacks"] !== undefined) {
+        startRow = i + 1;
+        chainHeaderMap = candidate;
+        break;
+      }
     }
-    if (startRow !== -1) {
+    if (startRow !== -1 && chainHeaderMap) {
+      const memCol = headerIndex_(chainHeaderMap, "Member ID", true);
+      const respectCol = headerIndex_(chainHeaderMap, "Respect", true);
+      const assistCol = headerIndex_(chainHeaderMap, "Assist", true);
+      const leaveCol = headerIndex_(chainHeaderMap, "Leave", true);
+      const mugCol = headerIndex_(chainHeaderMap, "Mug", true);
+      const hospCol = headerIndex_(chainHeaderMap, "Hosp", true);
       for (let i = startRow; i < chainData.length; i++) {
-        let memId = cleanId(chainData[i][0]);
+        let memId = cleanId(chainData[i][memCol]);
         if (memId === "" || memId === "API ERROR:") continue;
         if (!stats[memId]) stats[memId] = initStats(`ID: ${memId}`);
         let s = stats[memId];
         
-        s.res += parseFloat(chainData[i][2]) || 0; 
-        s.wa += parseInt(chainData[i][6]) || 0;    
-        s.abr += parseInt(chainData[i][7]) || 0;   
+        s.res += parseFloat(chainData[i][respectCol]) || 0; 
+        s.wa += parseInt(chainData[i][assistCol]) || 0;    
         
-        let chainSuccesses = (parseInt(chainData[i][3]) || 0) + (parseInt(chainData[i][4]) || 0) + (parseInt(chainData[i][5]) || 0);
+        // "Overseas" in a chain report is not automatically a War Abroad Hit.
+        // War Abroad Hits are derived from RD attack rows below where the
+        // defender is the ranked-war opponent and the Overseas modifier > 1.
+        let chainSuccesses = (parseInt(chainData[i][leaveCol]) || 0) + (parseInt(chainData[i][mugCol]) || 0) + (parseInt(chainData[i][hospCol]) || 0);
         s.ch += Math.max(0, chainSuccesses - s.wh); 
       }
     }
@@ -109,9 +125,19 @@ function runPayoutMath() {
   // --- 4. ADVANCED RD PARSING ---
   if (rdSheet) {
     let rdData = rdSheet.getDataRange().getValues();
-    let tCol = 2; let aIdCol = 3; let aNameCol = 4; let aFacCol = 5; 
-    let dIdCol = 6; let dFacCol = 8; let resltCol = 9; let resCol = 10; 
-    let retCol = 13; let cBonusCol = 16; 
+    if (rdData.length < 2) throw new Error("RD sheet has no attack rows.");
+    const rdHeaders = headerMapFromRow_(rdData[0]);
+    const tCol = headerIndex_(rdHeaders, ["End Time", "Timestamp", "End"], true);
+    const aIdCol = headerIndex_(rdHeaders, "Attacker ID", true);
+    const aNameCol = headerIndex_(rdHeaders, "Attacker Name", true);
+    const aFacCol = headerIndex_(rdHeaders, ["Attacker Faction", "Attacker Faction ID"], true);
+    const dIdCol = headerIndex_(rdHeaders, "Defender ID", true);
+    const dFacCol = headerIndex_(rdHeaders, ["Defender Faction", "Defender Faction ID"], true);
+    const resltCol = headerIndex_(rdHeaders, "Result", true);
+    const resCol = headerIndex_(rdHeaders, "Respect", true);
+    const retCol = headerIndex_(rdHeaders, "Retaliation", false);
+    const cBonusCol = headerIndex_(rdHeaders, "Chain Bonus", false);
+    const overseasCol = headerIndex_(rdHeaders, "Overseas", false);
 
     let rdEvents = [];
 
@@ -127,8 +153,9 @@ function runPayoutMath() {
         dId: cleanId(rdData[i][dIdCol]), dFac: cleanId(rdData[i][dFacCol]), 
         result: safeStr(rdData[i][resltCol]).toLowerCase(), 
         respect: parseFloat(rdData[i][resCol]) || 0,
-        retMult: parseFloat(rdData[i][retCol]) || 1,
-        cBonus: parseFloat(rdData[i][cBonusCol]) || 1
+        retMult: retCol >= 0 ? (parseFloat(rdData[i][retCol]) || 1) : 1,
+        cBonus: cBonusCol >= 0 ? (parseFloat(rdData[i][cBonusCol]) || 1) : 1,
+        overseasMult: overseasCol >= 0 ? (parseFloat(rdData[i][overseasCol]) || 1) : 1
       });
     }
 
@@ -202,6 +229,12 @@ function runPayoutMath() {
         }
 
         if (targetFactionId !== "" && e.dFac === targetFactionId) {
+          const successfulWarHit = e.respect > 0 &&
+            (e.result.includes("hospitalized") || e.result.includes("attacked") || e.result.includes("mugged"));
+          if (successfulWarHit && e.overseasMult > 1) {
+            stats[e.aId].abr += 1;
+          }
+
           if (e.result.includes("lost") || e.result.includes("escape") || e.result.includes("draw") || e.result.includes("timeout") || e.result.includes("stalemate")) {
             stats[e.aId].wl += 1;
           } else if (e.retMult > 1) {
