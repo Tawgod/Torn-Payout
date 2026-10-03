@@ -739,6 +739,9 @@ function buildDashboard() {
       sd.warRep = dashSheet.getRange("F15").getValue();
       sd.chainRep = dashSheet.getRange("F16").getValue();
 
+      sd.factionCut = dashSheet.getRange("I10").getValue();
+      sd.maxFactionCut = dashSheet.getRange("I11").getValue();
+
       // Preserve the preset selector if the block already exists.
       try { sd.preset = dashSheet.getRange("L3").getValue(); } catch (e) { sd.preset = "Custom"; }
       
@@ -878,8 +881,8 @@ function buildDashboard() {
     ["- Approved Bounties", "0"],             
     ["- Other Cost", "0"],                    
     ["NET PROFIT", "0"],                      
-    ["Faction Cut %", "6%"],  
-    ["Max Faction Cut ($)", ""],              
+    ["Faction Cut %", def(sd.factionCut, 0.06)],  
+    ["Max Faction Cut ($)", def(sd.maxFactionCut, "")],              
     ["Actual Faction Deduction", "0"],        
     ["PAYOUT TOTAL", "0"]                     
   ];
@@ -891,7 +894,7 @@ function buildDashboard() {
   let bountySheetName = (typeof SETTINGS !== "undefined" && SETTINGS.bountySheet) ? SETTINGS.bountySheet : "Bounties";
   dashSheet.getRange("I7").setFormula(`=IFERROR(SUMIFS('${bountySheetName}'!E:E, '${bountySheetName}'!F:F, "Approved"), 0)`);
   dashSheet.getRange("I9").setFormula("=IFERROR(I3 - SUM(I4:I8), 0)");
-  dashSheet.getRange("I12").setFormula("=IFERROR(I9*I10, 0)");
+  dashSheet.getRange("I12").setFormula('=IFERROR(MIN(I9*I10, IF(I11="", I9*I10, I11)), 0)');
   dashSheet.getRange("I13").setFormula("=IFERROR(I9-I12, 0)"); 
 
   dashSheet.getRange("C12").setNumberFormat('"$ "#,##0');
