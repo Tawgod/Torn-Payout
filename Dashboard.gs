@@ -163,9 +163,9 @@ function fetchOfficialReports() {
       output.push(["Caches / Items Won", cacheString]);
       output.push(["Estimated Cache Value", totalCacheValue > 0 ? totalCacheValue : ""]);
       
-      dashSheet.getRange("C5").setNumberFormat("@").setValue(startStr);       
-      dashSheet.getRange("C6").setNumberFormat("@").setValue(endStr);   
-      dashSheet.getRange("C7").setNumberFormat("@").setValue(warId);      
+      setVal("official war start", startStr);
+      setVal("official war end", endStr);
+      setVal("war id", warId);
       
       setVal("caches / items won", cacheString);
       setVal("total war hits", myTotalWarHits);
@@ -380,11 +380,11 @@ function fetchOfficialReports() {
     }
   }
 
-  // HARDCODED DASHBOARD PUSH
-  dashSheet.getRange("C16").setNumberFormat("@").setValue(finalChainStart);       
-  dashSheet.getRange("C17").setNumberFormat("@").setValue(finalChainEnd);         
-  dashSheet.getRange("C18").setValue(finalChainHits);        
-  dashSheet.getRange("C19").setValue(finalChainRespect);     
+  // Push chain insights by label so Dashboard layout changes are safe.
+  setVal("first attack logged", finalChainStart);
+  setVal("latest attack logged", finalChainEnd);
+  setVal("total attacks logged", finalChainHits);
+  setVal("total respect generated", finalChainRespect);
   
   if (typeof refreshDashboard === "function") { refreshDashboard(); }
   SpreadsheetApp.getUi().alert("✅ Official Reports Fetched & Insights Populated!");
@@ -459,9 +459,9 @@ function refreshDashboard() {
         let startUnix = json.rankedwarreport.war ? json.rankedwarreport.war.start : json.rankedwarreport.start;
         let endUnix = json.rankedwarreport.war ? json.rankedwarreport.war.end : json.rankedwarreport.end;
         
-        dashSheet.getRange("C5").setNumberFormat("@").setValue(formatTornDate(startUnix));
-        dashSheet.getRange("C6").setNumberFormat("@").setValue(formatTornDate(endUnix));
-        dashSheet.getRange("C7").setNumberFormat("@").setValue(manualWarId);
+        setVal("official war start", formatTornDate(startUnix));
+        setVal("official war end", formatTornDate(endUnix));
+        setVal("war id", manualWarId);
 
         if (factions[myFactionId] && factions[myFactionId].rewards && factions[myFactionId].rewards.items) {
           let myItems = factions[myFactionId].rewards.items;
@@ -472,11 +472,11 @@ function refreshDashboard() {
 
         if (json.rankedwarreport.war && json.rankedwarreport.war.winner !== undefined) {
           let winnerId = json.rankedwarreport.war.winner.toString();
-          if (winnerId === myFactionId) dashSheet.getRange("C10").setValue("Win");
-          else if (winnerId === "0") dashSheet.getRange("C10").setValue("Draw");
-          else dashSheet.getRange("C10").setValue("Loss");
+          if (winnerId === myFactionId) setVal("outcome (result)", "Win");
+          else if (winnerId === "0") setVal("outcome (result)", "Draw");
+          else setVal("outcome (result)", "Loss");
         } else {
-          dashSheet.getRange("C10").setValue("Finished");
+          setVal("outcome (result)", "Finished");
         }
       }
     } else {
@@ -487,8 +487,8 @@ function refreshDashboard() {
         let warData = json.ranked_wars[activeWarId];
 
         setVal("war report id", activeWarId);
-        dashSheet.getRange("C7").setNumberFormat("@").setValue(activeWarId); 
-        dashSheet.getRange("C10").setValue("Ongoing");
+        setVal("war id", activeWarId);
+        setVal("outcome (result)", "Ongoing");
 
         let factions = warData.factions;
         for (let id in factions) {
@@ -501,7 +501,7 @@ function refreshDashboard() {
         }
         
         if (warData.war && warData.war.start) {
-            dashSheet.getRange("C5").setNumberFormat("@").setValue(formatTornDate(warData.war.start));
+            setVal("official war start", formatTornDate(warData.war.start));
         }
       }
     }
