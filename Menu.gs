@@ -27,6 +27,7 @@ function onOpen() {
     .addItem('5. Pull Raw Attack Data', 'importWarData')
     .addItem('6. Generate Payout Tab', 'buildPayoutTab')
     .addItem('7. Calculate Payout Metrics', 'runPayoutMath')
+    .addItem('Apply Selected Payout Preset', 'applySelectedPayoutPreset')
     .addItem('8. Generate Final Payouts', 'buildFinalPayoutTab')
     .addItem('9. Publish Payout to Public Sheet (Legacy)', 'publishPayoutToPublic')
     .addSeparator()
