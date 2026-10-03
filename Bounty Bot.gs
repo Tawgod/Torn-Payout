@@ -123,6 +123,7 @@ function triggerCurrentWarBountyScan() {
 
 function checkCurrentWarBountyScanStatus() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
   const dash = ss.getSheetByName(SETTINGS.dashboardSheet);
   const config = ss.getSheetByName(SETTINGS.configSheet);
   const cfg = getBountyBotConfig_();
