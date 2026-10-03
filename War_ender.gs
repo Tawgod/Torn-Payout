@@ -4,11 +4,11 @@ function checkWarEnd() {
   
   if (!dashSheet) return;
   
-  const warId = dashSheet.getRange("C5").getValue(); // NOW READS FROM DASHBOARD
+  const warId = labelValue_(dashSheet, "War ID", "") || labelValue_(dashSheet, "War Report ID", "");
 
   if (!warId || warId === "No Data" || warId === "") return;
 
-  const currentResult = dashSheet.getRange("C9").getValue();
+  const currentResult = labelValue_(dashSheet, "Outcome (Result)", "");
   if (currentResult === "Victory" || currentResult === "Defeat") return;
 
   let warJson;
@@ -52,10 +52,11 @@ function checkWarEnd() {
     cacheString = cacheArr.join(", ");
   }
 
-  // Write Results shifted down one row
-  dashSheet.getRange("C9").setValue(resultText);
-  dashSheet.getRange("C10").setValue(cacheString);
-  dashSheet.getRange("C11").setValue(totalEstValue);
+  // Write named Dashboard fields so layout changes cannot redirect the results.
+  setLabelValue_(dashSheet, "Outcome (Result)", resultText);
+  setLabelValue_(dashSheet, "Caches / Items Won", cacheString);
+  setLabelValue_(dashSheet, "Est. Cache Value", totalEstValue);
+  setLabelValue_(dashSheet, "Actual Cache Value", totalEstValue);
   
   ss.toast(`War Ended! Result: ${resultText}.`, "System", 8);
 }
