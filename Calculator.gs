@@ -100,7 +100,6 @@ function runPayoutMath() {
     if (startRow !== -1 && chainHeaderMap) {
       const memCol = headerIndex_(chainHeaderMap, "Member ID", true);
       const respectCol = headerIndex_(chainHeaderMap, "Respect", true);
-      const assistCol = headerIndex_(chainHeaderMap, "Assist", true);
       const leaveCol = headerIndex_(chainHeaderMap, "Leave", true);
       const mugCol = headerIndex_(chainHeaderMap, "Mug", true);
       const hospCol = headerIndex_(chainHeaderMap, "Hosp", true);
@@ -111,9 +110,10 @@ function runPayoutMath() {
         let s = stats[memId];
         
         s.res += parseFloat(chainData[i][respectCol]) || 0; 
-        s.wa += parseInt(chainData[i][assistCol]) || 0;    
         
-        // "Overseas" in a chain report is not automatically a War Abroad Hit.
+        // Chain-report Assist/Overseas values are deliberately NOT mapped to
+        // War Assists or War Abroad Hits. Those are derived from RD rows for
+        // the ranked-war opponent below.
         // War Abroad Hits are derived from RD attack rows below where the
         // defender is the ranked-war opponent and the Overseas modifier > 1.
         let chainSuccesses = (parseInt(chainData[i][leaveCol]) || 0) + (parseInt(chainData[i][mugCol]) || 0) + (parseInt(chainData[i][hospCol]) || 0);
@@ -188,7 +188,8 @@ function runPayoutMath() {
         if (e.aFac === myFactionId && e.respect > 0 && stats[e.aId]) {
           let isWarHit = (targetFactionId !== "" && e.dFac === targetFactionId);
           if (isWarHit && stats[e.aId].wh > 0) { 
-            stats[e.aId].wh--; hitsToRemove--; 
+            stats[e.aId].wh--; hitsToRemove--;
+            if (e.overseasMult > 1 && stats[e.aId].abr > 0) stats[e.aId].abr--;
             stats[e.aId].res = Math.max(0, stats[e.aId].res - e.respect); 
           } 
           else if (!isWarHit && stats[e.aId].ch > 0) { 
@@ -231,6 +232,11 @@ function runPayoutMath() {
         if (targetFactionId !== "" && e.dFac === targetFactionId) {
           const successfulWarHit = e.respect > 0 &&
             (e.result.includes("hospitalized") || e.result.includes("attacked") || e.result.includes("mugged"));
+
+          if (e.result.includes("assist")) {
+            stats[e.aId].wa += 1;
+          }
+
           if (successfulWarHit && e.overseasMult > 1) {
             stats[e.aId].abr += 1;
           }
@@ -353,6 +359,7 @@ function runPayoutMath() {
       let overflowHits = stats[id].wh - personalWarLimit;
       stats[id].ch += overflowHits;
       stats[id].wh = personalWarLimit;
+      stats[id].abr = Math.min(stats[id].abr, stats[id].wh);
     }
     if (stats[id].ch > personalChainLimit) {
       stats[id].ch = personalChainLimit;
