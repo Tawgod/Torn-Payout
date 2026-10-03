@@ -277,12 +277,16 @@ function fetchOfficialReports() {
       let rdSheetForBonus = ss.getSheetByName(SETTINGS.rdSheet || "RD");
       if (rdSheetForBonus && rdSheetForBonus.getLastRow() > 1) {
         let rdData = rdSheetForBonus.getDataRange().getValues();
+        const rdHeaderMap = headerMapFromRow_(rdData[0] || []);
+        const aFacCol = headerIndex_(rdHeaderMap, ["Attacker Faction", "Attacker Faction ID"], true);
+        const respectCol = headerIndex_(rdHeaderMap, "Respect", true);
+        const chainBonusCol = headerIndex_(rdHeaderMap, "Chain Bonus", false);
         let totalBonusRespectToStrip = 0;
         for (let i = 1; i < rdData.length; i++) {
-          let aFac = rdData[i][5] ? rdData[i][5].toString().replace(/,/g, "").trim() : "";
+          let aFac = rdData[i][aFacCol] ? rdData[i][aFacCol].toString().replace(/,/g, "").trim() : "";
           if (aFac === rawConfigFactionId) {
-            let respect = parseFloat(rdData[i][10]) || 0;
-            let cBonus = parseFloat(rdData[i][16]) || 1;
+            let respect = parseFloat(rdData[i][respectCol]) || 0;
+            let cBonus = chainBonusCol >= 0 ? (parseFloat(rdData[i][chainBonusCol]) || 1) : 1;
             if (cBonus > 1) {
                totalBonusRespectToStrip += (respect - (respect / cBonus));
             }
@@ -336,11 +340,17 @@ function fetchOfficialReports() {
       
       let cleanId = (val) => (val === null || val === undefined) ? "" : val.toString().replace(/,/g, "").trim();
       
+      const rdHeaderMap = headerMapFromRow_(rdData[0] || []);
+      const timeCol = headerIndex_(rdHeaderMap, ["End Time", "Timestamp", "End"], true);
+      const aFacCol = headerIndex_(rdHeaderMap, ["Attacker Faction", "Attacker Faction ID"], true);
+      const respectCol = headerIndex_(rdHeaderMap, "Respect", true);
+      const chainBonusCol = headerIndex_(rdHeaderMap, "Chain Bonus", false);
+
       for (let i = 1; i < rdData.length; i++) {
-        let tVal = rdData[i][2]; // Column C (Timestamp)
-        let aFac = cleanId(rdData[i][5]); // Column F (Attacker Faction ID)
-        let respect = parseFloat(rdData[i][10]) || 0; // Column K (Respect)
-        let cBonus = parseFloat(rdData[i][16]) || 1; // Column Q (Chain Bonus)
+        let tVal = rdData[i][timeCol];
+        let aFac = cleanId(rdData[i][aFacCol]);
+        let respect = parseFloat(rdData[i][respectCol]) || 0;
+        let cBonus = chainBonusCol >= 0 ? (parseFloat(rdData[i][chainBonusCol]) || 1) : 1;
         
         // Strip the Chain Bonus mathematically 
         let adjRespect = respect / (cBonus > 1 ? cBonus : 1);
@@ -633,10 +643,14 @@ function refreshDashboard() {
   
   if (rdSheetBonus && rdSheetBonus.getLastRow() > 1) {
     let rdBonusData = rdSheetBonus.getDataRange().getValues();
+    const rdBonusHeaders = headerMapFromRow_(rdBonusData[0] || []);
+    const aFacCol = headerIndex_(rdBonusHeaders, ["Attacker Faction", "Attacker Faction ID"], true);
+    const aNameCol = headerIndex_(rdBonusHeaders, "Attacker Name", true);
+    const cBonusCol = headerIndex_(rdBonusHeaders, "Chain Bonus", false);
     for (let r = 1; r < rdBonusData.length; r++) {
-      let aFac = rdBonusData[r][5] ? rdBonusData[r][5].toString().replace(/,/g, "").trim() : "";
-      let aName = rdBonusData[r][4] ? rdBonusData[r][4].toString().trim() : "Unknown";
-      let cBonus = parseFloat(rdBonusData[r][16]) || 0;
+      let aFac = rdBonusData[r][aFacCol] ? rdBonusData[r][aFacCol].toString().replace(/,/g, "").trim() : "";
+      let aName = rdBonusData[r][aNameCol] ? rdBonusData[r][aNameCol].toString().trim() : "Unknown";
+      let cBonus = cBonusCol >= 0 ? (parseFloat(rdBonusData[r][cBonusCol]) || 0) : 0;
       if (aFac === myFactionId && cBonus >= 10) {
         if (!bonusMap.has(aName) || cBonus > bonusMap.get(aName)) {
             bonusMap.set(aName, cBonus);
