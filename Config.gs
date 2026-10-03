@@ -34,8 +34,9 @@ const SETTINGS = {
     "Wt: Outside/Chain", "Wt: Chain Saves", "Wt: Retaliations", 
     "Wt: Net Respect", "Wt: War Abroad", "Wt: War Score" 
   ],
-  bountyHeaders: [           
-    "Date Logged", "Placed By", "Target", "Bounty Amount", "Refund Amount", "Status", "Notes"
+  bountyHeaders: [
+    "Date Logged", "Placed By", "Target", "Quantity", "Bounty Amount",
+    "Refund Amount", "Status", "Notes", "Source", "Torn News ID"
   ],
   finalHeaders: [            
     "Member ID", "Name", "War Payout ($)", "Bounty Refunds ($)", "Misc. Adjustments ($)", "Total Final Payout ($)", "One-Click Pay Link", "Payment Status" 
