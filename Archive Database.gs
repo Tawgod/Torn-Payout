@@ -211,10 +211,20 @@ function archiveCurrentWarToDatabase_() {
   const cfg = getArchiveDatabaseConfig_();
   const dashMap = dashboardLabelMap_(dashSheet);
 
-  let warId = dashboardValue_(dashMap, "war id", "");
-  if (!warId) warId = dashboardValue_(dashMap, "war report id", "");
-  warId = parseInt(String(warId).replace(/,/g, ""), 10);
-  if (!warId) throw new Error("No valid War ID was found on the Dashboard.");
+  let rawWarId = dashboardValue_(dashMap, "war id", "");
+  if (!rawWarId) rawWarId = dashboardValue_(dashMap, "war report id", "");
+  const warId = parseInt(String(rawWarId || "").replace(/,/g, ""), 10) || null;
+
+  const chainIds = String(dashboardValue_(dashMap, "chain report id", "") || "")
+    .split(",")
+    .map(id => id.trim())
+    .filter(id => /^\d+$/.test(id));
+
+  if (!warId && !chainIds.length) {
+    throw new Error("No valid War ID or Chain Report ID was found on the Dashboard.");
+  }
+
+  const legacyKey = warId ? null : "chain:" + chainIds.join(",");
 
   const lastCol = Math.max(1, payoutSheet.getLastColumn());
   const lastRow = Math.max(2, payoutSheet.getLastRow());
@@ -236,7 +246,8 @@ function archiveCurrentWarToDatabase_() {
   const payload = {
     faction_key: cfg.factionKey,
     war_id: warId,
-    enemy_name: String(dashboardValue_(dashMap, "enemy faction name", "Unknown") || "Unknown"),
+    legacy_key: legacyKey,
+    enemy_name: String(dashboardValue_(dashMap, "enemy faction name", warId ? "Unknown" : "Chain") || (warId ? "Unknown" : "Chain")),
     enemy_faction_id: dashboardValue_(dashMap, "enemy faction id", null),
     archived_at: new Date().toISOString(),
     source: "apps-script",
@@ -252,6 +263,8 @@ function archiveCurrentWarToDatabase_() {
       caches: dashboardValue_(dashMap, "caches / items won", ""),
       official_war_start: dashboardValue_(dashMap, "official war start", ""),
       official_war_end: dashboardValue_(dashMap, "official war end", ""),
+      war_report_id: warId || "",
+      chain_report_ids: chainIds,
       dashboard_values: dashboardValues
     },
     payout: {
@@ -384,13 +397,18 @@ function refreshWarArchiveIndex() {
       .setBackground("#444444").setFontColor("white").setFontWeight("bold")
       .setHorizontalAlignment("center");
 
-    const headers = ["War ID / Legacy Key", "Archived", "Enemy", "Outcome", "Termed", "Total Hits", "War Score", "Total Payout", "Faction Profit", "Record ID"];
+    const headers = ["War / Chain", "Archived", "Enemy", "Outcome", "Termed", "Total Hits", "War Score", "Total Payout", "Faction Profit", "Record ID"];
     sheet.getRange(2, 1, 1, headers.length).setValues([headers])
       .setBackground("#274e13").setFontColor("white").setFontWeight("bold");
 
     if (wars.length) {
-      const rows = wars.map(w => [
-        w.war_id || w.legacy_key || "",
+      const rows = wars.map(w => {
+        const rawKey = w.war_id || w.legacy_key || "";
+        const displayKey = String(rawKey).indexOf("chain:") === 0
+          ? "Chain " + String(rawKey).substring(6).split(",").join(", ")
+          : (w.war_id ? "War " + w.war_id : rawKey);
+        return [
+        displayKey,
         w.archived_at ? new Date(w.archived_at) : "",
         w.enemy_name || "",
         w.outcome || "",
@@ -400,8 +418,30 @@ function refreshWarArchiveIndex() {
         Number(w.total_payout || 0),
         Number(w.faction_profit || 0),
         Number(w.record_id || 0)
-      ]);
+      ];
+      });
       sheet.getRange(3, 1, rows.length, headers.length).setValues(rows);
+
+      wars.forEach((w, i) => {
+        const row = i + 3;
+        if (w.war_id) {
+          sheet.getRange(row, 1).setFormula(
+            '=HYPERLINK("https://www.torn.com/war.php?step=rankreport&rankID=' + w.war_id + '","War ' + w.war_id + '")'
+          );
+        } else if (w.legacy_key && String(w.legacy_key).indexOf("chain:") === 0) {
+          const ids = String(w.legacy_key).substring(6).split(",").map(v => v.trim()).filter(v => /^\\d+$/.test(v));
+          if (ids.length === 1) {
+            sheet.getRange(row, 1).setFormula(
+              '=HYPERLINK("https://www.torn.com/war.php?step=chainreport&chainID=' + ids[0] + '","Chain ' + ids[0] + '")'
+            );
+          } else if (ids.length > 1) {
+            sheet.getRange(row, 1).setValue("Chains " + ids.join(", "));
+            sheet.getRange(row, 1).setNote(
+              ids.map(id => "https://www.torn.com/war.php?step=chainreport&chainID=" + id).join("\\n")
+            );
+          }
+        }
+      });
       sheet.getRange(3, 2, rows.length, 1).setNumberFormat("yyyy-mm-dd HH:mm");
       sheet.getRange(3, 8, rows.length, 2).setNumberFormat('"$ "#,##0');
       sheet.getRange(3, 1, rows.length, headers.length).setBorder(true, true, true, true, true, true);
@@ -581,11 +621,14 @@ function restoreArchivedWar_(archive) {
   }
 
   const summary = archive.summary || {};
+  const legacyKey = String(archive.legacy_key || "");
+  const restoredChainIds = legacyKey.indexOf("chain:") === 0 ? legacyKey.substring(6) : "";
   const directValues = [
-    ["Enemy Faction Name", archive.enemy_name || "Unknown"],
+    ["Enemy Faction Name", archive.enemy_name || (restoredChainIds ? "Chain" : "Unknown")],
     ["Enemy Faction ID", archive.enemy_faction_id || ""],
     ["War ID", archive.war_id || ""],
     ["War Report ID", archive.war_id || ""],
+    ["Chain Report ID", restoredChainIds],
     ["Outcome (Result)", summary.outcome || "Unknown"],
     ["Termed?", summary.termed === true ? "Yes" : (summary.termed === false ? "No" : summary.termed || "")],
     ["Total War Hits", summary.total_war_hits || 0],
