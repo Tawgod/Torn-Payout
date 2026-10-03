@@ -738,6 +738,9 @@ function buildDashboard() {
       
       sd.warRep = dashSheet.getRange("F15").getValue();
       sd.chainRep = dashSheet.getRange("F16").getValue();
+
+      // Preserve the preset selector if the block already exists.
+      try { sd.preset = dashSheet.getRange("L3").getValue(); } catch (e) { sd.preset = "Custom"; }
       
       sd.tiers = dashSheet.getRange("E19:F21").getValues();
     } catch(e) {}
@@ -895,6 +898,26 @@ function buildDashboard() {
   dashSheet.getRange("I3:I9").setNumberFormat('"$ "#,##0');
   dashSheet.getRange("I10").setNumberFormat('0%');
   dashSheet.getRange("I11:I13").setNumberFormat('"$ "#,##0');
+
+  // ==========================================
+  // PAYOUT PRESET SELECTOR
+  // ==========================================
+  buildBlock("K2:L6", "K2:L2", "🎛️ PAYOUT PRESET", colors.purpleHeader, colors.purpleBg);
+  const presetCfg = (typeof getPresetConfig_ === "function") ? getPresetConfig_() : {defaultCut: 0.06, defaultMaxCut: ""};
+  dashSheet.getRange("K3:L6").setValues([
+    ["Payout Preset", def(sd.preset, "Custom")],
+    ["Preset Cut", presetCfg.defaultCut],
+    ["Preset Max Cut", presetCfg.defaultMaxCut],
+    ["Weights", "TBD / Current"]
+  ]);
+  const presetRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Custom", "Termed Win", "Termed Loss", "Real War"], true)
+    .setAllowInvalid(false)
+    .build();
+  dashSheet.getRange("L3").setDataValidation(presetRule).setBackground("#ffffff");
+  dashSheet.getRange("L4").setNumberFormat("0%");
+  dashSheet.getRange("L5").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("L4:L6").setBackground("#e6e8eb");
 
   // ==========================================
   // BOTTOM LEADERBOARDS (From your original file)
