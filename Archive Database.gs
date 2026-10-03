@@ -429,7 +429,7 @@ function refreshWarArchiveIndex() {
             '=HYPERLINK("https://www.torn.com/war.php?step=rankreport&rankID=' + w.war_id + '","War ' + w.war_id + '")'
           );
         } else if (w.legacy_key && String(w.legacy_key).indexOf("chain:") === 0) {
-          const ids = String(w.legacy_key).substring(6).split(",").map(v => v.trim()).filter(v => /^\\d+$/.test(v));
+          const ids = String(w.legacy_key).substring(6).split(",").map(v => v.trim()).filter(v => /^\d+$/.test(v));
           if (ids.length === 1) {
             sheet.getRange(row, 1).setFormula(
               '=HYPERLINK("https://www.torn.com/war.php?step=chainreport&chainID=' + ids[0] + '","Chain ' + ids[0] + '")'
@@ -437,7 +437,7 @@ function refreshWarArchiveIndex() {
           } else if (ids.length > 1) {
             sheet.getRange(row, 1).setValue("Chains " + ids.join(", "));
             sheet.getRange(row, 1).setNote(
-              ids.map(id => "https://www.torn.com/war.php?step=chainreport&chainID=" + id).join("\\n")
+              ids.map(id => "https://www.torn.com/war.php?step=chainreport&chainID=" + id).join("\n")
             );
           }
         }
