@@ -24,7 +24,7 @@ function runPayoutMath() {
   // --- 1. GET ENEMY ID, STRICT LIMITS & DASHBOARD TOGGLES ---
   const globalHitLimit = parseInt(labelValue_(dashSheet, "Total Hits (Max Limit)", "")) || 999999;
   const personalWarLimit = parseInt(labelValue_(dashSheet, "Max War Hits", "")) || 999999;
-  const personalChainLimit = parseInt(labelValue_(dashSheet, "Max Chain Hits", "")) || 999999;
+  const factionChainLimit = parseInt(labelValue_(dashSheet, "Max Chain Hits", "")) || 999999;
 
   let dashData = dashSheet.getDataRange().getValues();
   let targetFactionId = cleanId(labelValue_(dashSheet, "Enemy Faction ID", ""));
@@ -353,7 +353,8 @@ function runPayoutMath() {
     }
   }
 
-  // ---> 5. ENFORCE PERSONAL SUB-LIMITS WITH OVERFLOW <---
+  // ---> 5. ENFORCE LIMITS <---
+  // War hit cap remains per-member.
   for (let id in stats) {
     if (stats[id].wh > personalWarLimit) {
       let overflowHits = stats[id].wh - personalWarLimit;
@@ -361,8 +362,60 @@ function runPayoutMath() {
       stats[id].wh = personalWarLimit;
       stats[id].abr = Math.min(stats[id].abr, stats[id].wh);
     }
-    if (stats[id].ch > personalChainLimit) {
-      stats[id].ch = personalChainLimit;
+  }
+
+  // Max Chain Hits is faction-wide, not per-member. Remove the newest
+  // qualifying non-war hits first until the faction total reaches the cap.
+  let factionChainTotal = 0;
+  for (let id in stats) factionChainTotal += Math.max(0, Number(stats[id].ch) || 0);
+
+  if (factionChainTotal > factionChainLimit && rdSheet) {
+    let chainToRemove = factionChainTotal - factionChainLimit;
+    const rdDataForCap = rdSheet.getDataRange().getValues();
+    const capHeaders = headerMapFromRow_(rdDataForCap[0] || []);
+    const capTimeCol = headerIndex_(capHeaders, ["End Time", "Timestamp", "End"], true);
+    const capAIdCol = headerIndex_(capHeaders, "Attacker ID", true);
+    const capAFacCol = headerIndex_(capHeaders, ["Attacker Faction", "Attacker Faction ID"], true);
+    const capDFacCol = headerIndex_(capHeaders, ["Defender Faction", "Defender Faction ID"], true);
+    const capResultCol = headerIndex_(capHeaders, "Result", true);
+    const capRespectCol = headerIndex_(capHeaders, "Respect", true);
+
+    const chainEvents = [];
+    for (let i = 1; i < rdDataForCap.length; i++) {
+      const aId = cleanId(rdDataForCap[i][capAIdCol]);
+      const aFac = cleanId(rdDataForCap[i][capAFacCol]);
+      const dFac = cleanId(rdDataForCap[i][capDFacCol]);
+      const result = safeStr(rdDataForCap[i][capResultCol]).toLowerCase();
+      const respect = parseFloat(rdDataForCap[i][capRespectCol]) || 0;
+      if (aFac !== myFactionId || !stats[aId] || respect <= 0) continue;
+      if (targetFactionId && dFac === targetFactionId) continue;
+      const success = result.includes("hospitalized") || result.includes("attacked") || result.includes("mugged");
+      if (!success) continue;
+      chainEvents.push({
+        time: new Date(rdDataForCap[i][capTimeCol]).getTime(),
+        aId: aId
+      });
+    }
+
+    chainEvents.sort((a, b) => b.time - a.time);
+    for (let i = 0; i < chainEvents.length && chainToRemove > 0; i++) {
+      const id = chainEvents[i].aId;
+      if (stats[id] && stats[id].ch > 0) {
+        stats[id].ch--;
+        chainToRemove--;
+      }
+    }
+
+    // If historical/official totals exceed what RD can reconcile, finish the
+    // cap deterministically without allowing the faction total to exceed it.
+    if (chainToRemove > 0) {
+      const ids = Object.keys(stats).sort();
+      for (let i = ids.length - 1; i >= 0 && chainToRemove > 0; i--) {
+        const id = ids[i];
+        const take = Math.min(stats[id].ch, chainToRemove);
+        stats[id].ch -= take;
+        chainToRemove -= take;
+      }
     }
   }
 
