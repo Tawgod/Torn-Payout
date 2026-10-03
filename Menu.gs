@@ -22,6 +22,12 @@ function onOpen() {
     .addItem('1. Quick Refresh Dashboard Data', 'refreshDashboard')
     .addItem('2. Update Faction Roster', 'updateRoster')
     .addItem('3. Initialize Bounty Tracker', 'setupBountyTracker')
+    .addSubMenu(
+      ui.createMenu('🎯 Bounties')
+        .addItem('Configure Bounty Bot Bridge', 'configureBountyBotBridge')
+        .addItem('Scan Current War Bounties', 'triggerCurrentWarBountyScan')
+        .addItem('Check Current War Bounty Scan', 'checkCurrentWarBountyScanStatus')
+    )
     .addSeparator()
     .addItem('4. Fetch Official Torn Reports', 'fetchOfficialReports')
     .addItem('5. Pull Raw Attack Data', 'importWarData')
