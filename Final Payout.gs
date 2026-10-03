@@ -17,6 +17,27 @@ function buildFinalPayoutTab() {
 
   const rosterData = payoutSheet.getRange(3, 1, lastRow - 2, 2).getValues();
 
+  let bountyFormulaParts = null;
+  if (bountySheet && bountySheet.getLastColumn() > 0) {
+    const bountyHeaders = headerMapFromRow_(bountySheet.getRange(1, 1, 1, bountySheet.getLastColumn()).getValues()[0]);
+    const placedByCol = headerIndex_(bountyHeaders, "Placed By", false);
+    const refundCol = headerIndex_(bountyHeaders, "Refund Amount", false);
+    const statusCol = headerIndex_(bountyHeaders, "Status", false);
+    if (placedByCol >= 0 && refundCol >= 0 && statusCol >= 0) {
+      const toA1Col = n => {
+        let s = "";
+        n++;
+        while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+        return s;
+      };
+      bountyFormulaParts = {
+        placed: toA1Col(placedByCol),
+        refund: toA1Col(refundCol),
+        status: toA1Col(statusCol)
+      };
+    }
+  }
+
   if (!finalSheet) {
     finalSheet = ss.insertSheet(SETTINGS.finalSheet, 5);
   } else {
@@ -42,7 +63,9 @@ function buildFinalPayoutTab() {
       let payoutRow = r + 3;  
       
       let warFormula = `='${SETTINGS.payoutSheet}'!D${payoutRow}`;
-      let bountyFormula = bountySheet ? `=SUMIFS('${SETTINGS.bountySheet}'!E:E, '${SETTINGS.bountySheet}'!B:B, B${rowNum}, '${SETTINGS.bountySheet}'!F:F, "Approved")` : `=0`;
+      let bountyFormula = bountyFormulaParts
+        ? `=SUMIFS('${SETTINGS.bountySheet}'!${bountyFormulaParts.refund}:${bountyFormulaParts.refund}, '${SETTINGS.bountySheet}'!${bountyFormulaParts.placed}:${bountyFormulaParts.placed}, B${rowNum}, '${SETTINGS.bountySheet}'!${bountyFormulaParts.status}:${bountyFormulaParts.status}, "Approved")`
+        : `=0`;
       let totalFormula = `=C${rowNum} + D${rowNum} + E${rowNum}`;
       let linkFormula = `=IF(F${rowNum}>0, HYPERLINK("https://www.torn.com/factions.php?step=your#/tab=controls&addMoneyTo=" & A${rowNum} & "&money=" & INT(F${rowNum}), "💸 Pay " & B${rowNum}), "No Payout")`;
 
