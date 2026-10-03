@@ -24,7 +24,10 @@ function runPayoutMath() {
   // --- 1. GET ENEMY ID, STRICT LIMITS & DASHBOARD TOGGLES ---
   const globalHitLimit = parseInt(labelValue_(dashSheet, "Total Hits (Max Limit)", "")) || 999999;
   const personalWarLimit = parseInt(labelValue_(dashSheet, "Max War Hits", "")) || 999999;
-  const factionChainLimit = parseInt(labelValue_(dashSheet, "Max Chain Hits", "")) || 999999;
+  const factionChainLimit = parseInt(
+    labelValue_(dashSheet, "Max Chain Hits (Faction Total)",
+      labelValue_(dashSheet, "Max Chain Hits", ""))
+  ) || 999999;
 
   let dashData = dashSheet.getDataRange().getValues();
   let targetFactionId = cleanId(labelValue_(dashSheet, "Enemy Faction ID", ""));
