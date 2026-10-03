@@ -855,7 +855,7 @@ function buildDashboard() {
   dashSheet.getRange("E3:F6").setValues([
     ["Total Hits (Max Limit)", ""], 
     ["Max War Hits", ""], 
-    ["Max Chain Hits", ""],
+    ["Max Chain Hits (Faction Total)", ""],
     ["Pay Post-War Chain?", "Yes"]
   ]);
   dashSheet.getRange("F6").setDataValidation(yesNoRule);
