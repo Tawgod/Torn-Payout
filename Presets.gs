@@ -69,9 +69,12 @@ function applySelectedPayoutPreset() {
   while (weights.length < 13) weights.push(0);
   payouts.getRange(1, 5, 1, 13).setValues([weights]);
 
+  // Keep preset application local-only so the Dashboard dropdown can use a
+  // simple onEdit trigger without invoking authorized Torn/Railway services.
+  setDashboardValueByLabel_(dash, "Preset Cut", preset.cut);
+  setDashboardValueByLabel_(dash, "Preset Max Cut", preset.maxCut);
+  setDashboardValueByLabel_(dash, "Weights", "Applied: " + presetName);
   SpreadsheetApp.flush();
-  if (typeof runPayoutMath === "function") runPayoutMath();
-  if (typeof refreshDashboard === "function") refreshDashboard();
 
   ss.toast(
     presetName + " applied: " + Math.round(Number(preset.cut || 0) * 100) + "% faction cut" +
