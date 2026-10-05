@@ -386,8 +386,9 @@ function fetchOfficialReports() {
   setVal("total attacks logged", finalChainHits);
   setVal("total respect generated", finalChainRespect);
   
+  if (typeof importWarData === "function") { importWarData(true); }
   if (typeof refreshDashboard === "function") { refreshDashboard(); }
-  SpreadsheetApp.getUi().alert("✅ Official Reports Fetched & Insights Populated!");
+  SpreadsheetApp.getUi().alert("✅ Official Reports Fetched, Raw Attack Data Pulled & Dashboard Refreshed!");
 }
 
 // ==========================================
