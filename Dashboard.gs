@@ -757,9 +757,18 @@ function buildDashboard() {
       sd.factionCut = dashSheet.getRange("I10").getValue();
       sd.maxFactionCut = dashSheet.getRange("I11").getValue();
 
-      // Preserve the preset selector if the block already exists.
-      try { sd.preset = dashSheet.getRange("L3").getValue(); } catch (e) { sd.preset = "Custom"; }
-      
+      // Preserve Push Settings from the legacy/current Dashboard layout.
+      try { sd.pushSettings = dashSheet.getRange("K4:M13").getValues(); } catch (e) { sd.pushSettings = []; }
+
+      // Preserve the payout preset from either the old test location or the new lower-right location.
+      try {
+        const topHeader = String(dashSheet.getRange("K2").getDisplayValue() || "");
+        const lowerHeader = String(dashSheet.getRange("K30").getDisplayValue() || "");
+        if (topHeader.indexOf("PAYOUT PRESET") !== -1) sd.preset = dashSheet.getRange("L3").getValue();
+        else if (lowerHeader.indexOf("PAYOUT PRESET") !== -1) sd.preset = dashSheet.getRange("L31").getValue();
+        else sd.preset = "Custom";
+      } catch (e) { sd.preset = "Custom"; }
+
       sd.tiers = dashSheet.getRange("E19:F21").getValues();
     } catch(e) {}
   }
@@ -787,8 +796,9 @@ function buildDashboard() {
   dashSheet.setColumnWidth(8, 170);  // H: Finance Labels
   dashSheet.setColumnWidth(9, 130);  // I: Finance Values
   dashSheet.setColumnWidth(10, 15);  // J: Spacer
-  dashSheet.setColumnWidth(11, 150); // K: Bonus Labels
-  dashSheet.setColumnWidth(12, 60);  // L: Bonus Values
+  dashSheet.setColumnWidth(11, 150); // K: Push / Bonus Labels
+  dashSheet.setColumnWidth(12, 90);  // L: Push Date / Bonus Values
+  dashSheet.setColumnWidth(13, 125); // M: Push Time Limit
 
   // --- COLOR PALETTE (From your file) ---
   const colors = {
@@ -918,11 +928,28 @@ function buildDashboard() {
   dashSheet.getRange("I11:I13").setNumberFormat('"$ "#,##0');
 
   // ==========================================
-  // PAYOUT PRESET SELECTOR
+  // PUSH SETTINGS (preserved from current production workbook)
   // ==========================================
-  buildBlock("K2:L6", "K2:L2", "🎛️ PAYOUT PRESET", colors.purpleHeader, colors.purpleBg);
+  dashSheet.getRange("K2:M13").setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
+  dashSheet.getRange("K2:M2").merge().setValue("⏩ PUSH SETTINGS")
+    .setBackground(colors.purpleHeader).setFontColor(colors.headerText).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("K3:M3").setValues([["Start Time", "Start Date", "Time Limit (Min)"]])
+    .setBackground(colors.purpleBg).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("K4:M13").setBackground("#f4edf7").setHorizontalAlignment("center");
+  if (sd.pushSettings && sd.pushSettings.length === 10) {
+    dashSheet.getRange("K4:M13").setValues(sd.pushSettings);
+  }
+  dashSheet.getRange("K4:K13").setNumberFormat("hh:mm");
+  dashSheet.getRange("L4:L13").setNumberFormat("yyyy-mm-dd");
+  dashSheet.getRange("M4:M13").setNumberFormat("0");
+
+  // ==========================================
+  // PAYOUT PRESET SELECTOR
+  // Relocated so Push Settings remains in its familiar upper-right location.
+  // ==========================================
+  buildBlock("K30:L34", "K30:L30", "🎛️ PAYOUT PRESET", colors.purpleHeader, colors.purpleBg);
   const presetCfg = (typeof getPresetConfig_ === "function") ? getPresetConfig_() : {defaultCut: 0.06, defaultMaxCut: ""};
-  dashSheet.getRange("K3:L6").setValues([
+  dashSheet.getRange("K31:L34").setValues([
     ["Payout Preset", def(sd.preset, "Custom")],
     ["Preset Cut", presetCfg.defaultCut],
     ["Preset Max Cut", presetCfg.defaultMaxCut],
@@ -932,10 +959,10 @@ function buildDashboard() {
     .requireValueInList(["Custom", "Termed Win", "Termed Loss", "Real War"], true)
     .setAllowInvalid(false)
     .build();
-  dashSheet.getRange("L3").setDataValidation(presetRule).setBackground("#ffffff");
-  dashSheet.getRange("L4").setNumberFormat("0%");
-  dashSheet.getRange("L5").setNumberFormat('"$ "#,##0');
-  dashSheet.getRange("L4:L6").setBackground("#e6e8eb");
+  dashSheet.getRange("L31").setDataValidation(presetRule).setBackground("#ffffff");
+  dashSheet.getRange("L32").setNumberFormat("0%");
+  dashSheet.getRange("L33").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("L32:L34").setBackground("#e6e8eb");
 
   // ==========================================
   // BOTTOM LEADERBOARDS (From your original file)
