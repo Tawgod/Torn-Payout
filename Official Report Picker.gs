@@ -223,8 +223,9 @@ function applyOfficialReportSelection(selection) {
   if (startUnix) writeDashboardBoundary_(dash, "Start Date", "Start Time", startUnix);
   if (endUnix) writeDashboardBoundary_(dash, "End Date", "End Time", endUnix);
 
-  ss.toast("Official reports selected. Run Fetch Official Torn Reports next.", "Reports", 5);
-  return "Selection applied. Custom time window updated.";
+  ss.toast("Official reports selected. Fetching reports…", "Reports", 5);
+  fetchOfficialReports();
+  return "Selection applied, custom time window updated, and official reports fetched.";
 }
 
 function resolveReportBoundary_(key, war, chains, side) {
