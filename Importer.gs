@@ -1,7 +1,8 @@
 // ==========================================
 // 1. MASTER IMPORTER (Timezone-Safe + Duplicate Shield)
 // ==========================================
-function importWarData() {
+function importWarData(silentMode) {
+  silentMode = silentMode === true;
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const configSheet = ss.getSheetByName(SETTINGS.configSheet);
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
@@ -133,7 +134,11 @@ function importWarData() {
            `End:   ${endString}\n\n` +
            `If the number of hits is wrong, check these exact boundary times!`;
            
-    SpreadsheetApp.getUi().alert(msg);
+    if (silentMode) {
+      ss.toast(`Imported ${filteredData.length - 1} unique attacks for the selected time window.`, "Raw Data", 5);
+    } else {
+      SpreadsheetApp.getUi().alert(msg);
+    }
     
   } else {
     // ---> THE FIX: Write dynamic headers even if empty <---
