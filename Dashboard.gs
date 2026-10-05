@@ -760,10 +760,11 @@ function buildDashboard() {
 
   // ==========================================
   // SETTINGS GROUP 3: PAYOUT SETTINGS
+  // Directly below Chain Watch
   // ==========================================
-  buildBlock("H2:I12", "H2:I2", "⚙️ PAYOUT SETTINGS", colors.orangeHeader, colors.orangeBg);
+  buildBlock("E16:F26", "E16:F16", "⚙️ PAYOUT SETTINGS", colors.orangeHeader, colors.orangeBg);
   const presetCfg = (typeof getPresetConfig_ === "function") ? getPresetConfig_() : {defaultCut: 0.06, defaultMaxCut: ""};
-  dashSheet.getRange("H3:I12").setValues([
+  dashSheet.getRange("E17:F26").setValues([
     ["Total Hits (Max Limit)", def(sd.totLim, "")],
     ["Max War Hits", def(sd.warLim, "")],
     ["Max Chain Hits (Faction Total)", def(sd.chainLim, "")],
@@ -775,22 +776,23 @@ function buildDashboard() {
     ["Faction Cut %", def(sd.factionCut, presetCfg.defaultCut)],
     ["Max Faction Cut ($)", def(sd.maxFactionCut, presetCfg.defaultMaxCut)]
   ]);
-  dashSheet.getRange("I6").setDataValidation(yesNoRule);
+  dashSheet.getRange("F20").setDataValidation(yesNoRule);
 
   const presetRule = SpreadsheetApp.newDataValidation()
     .requireValueInList(["Custom", "Termed Win", "Termed Loss", "Real War"], true)
     .setAllowInvalid(false)
     .build();
-  dashSheet.getRange("I7").setDataValidation(presetRule);
-  dashSheet.getRange("I8").setNumberFormat("0%");
-  dashSheet.getRange("I9").setNumberFormat('"$ "#,##0');
-  dashSheet.getRange("I11").setNumberFormat("0%");
-  dashSheet.getRange("I12").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("F21").setDataValidation(presetRule);
+  dashSheet.getRange("F22").setNumberFormat("0%");
+  dashSheet.getRange("F23").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("F25").setNumberFormat("0%");
+  dashSheet.getRange("F26").setNumberFormat('"$ "#,##0');
 
   // ==========================================
   // SETTINGS GROUP 4: WAR FINANCIALS
+  // Back in the former H:I payout-settings lane
   // ==========================================
-  buildBlock("K2:L13", "K2:L2", "💰 WAR FINANCIALS", colors.greenHeader, colors.greenBg);
+  buildBlock("H2:I13", "H2:I2", "💰 WAR FINANCIALS", colors.greenHeader, colors.greenBg);
   const financeLabels = [
     ["Total Revenue", "0"],
     ["- Temp Cost", "0"],
@@ -804,15 +806,15 @@ function buildDashboard() {
     ["", ""],
     ["", ""]
   ];
-  dashSheet.getRange("K3:L13").setValues(financeLabels);
+  dashSheet.getRange("H3:I13").setValues(financeLabels);
 
   let bountySheetName = (typeof SETTINGS !== "undefined" && SETTINGS.bountySheet) ? SETTINGS.bountySheet : "Bounties";
-  dashSheet.getRange("L7").setFormula(`=IFERROR(SUMIFS('${bountySheetName}'!E:E, '${bountySheetName}'!F:F, "Approved"), 0)`);
-  dashSheet.getRange("L9").setFormula("=IFERROR(L3 - SUM(L4:L8), 0)");
-  dashSheet.getRange("L10").setFormula('=IFERROR(MIN(L9*I11, IF(I12="", L9*I11, I12)), 0)');
-  dashSheet.getRange("L11").setFormula("=IFERROR(L9-L10, 0)");
-  dashSheet.getRange("L9:L11").setFontWeight("bold");
-  dashSheet.getRange("L3:L11").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("I7").setFormula(`=IFERROR(SUMIFS('${bountySheetName}'!E:E, '${bountySheetName}'!F:F, "Approved"), 0)`);
+  dashSheet.getRange("I9").setFormula("=IFERROR(I3 - SUM(I4:I8), 0)");
+  dashSheet.getRange("I10").setFormula('=IFERROR(MIN(I9*F25, IF(F26="", I9*F25, F26)), 0)');
+  dashSheet.getRange("I11").setFormula("=IFERROR(I9-I10, 0)");
+  dashSheet.getRange("I9:I11").setFontWeight("bold");
+  dashSheet.getRange("I3:I11").setNumberFormat('"$ "#,##0');
 
   // ==========================================
   // SETTINGS GROUP 5: PUSH SETTINGS
@@ -832,12 +834,12 @@ function buildDashboard() {
   dashSheet.getRange("F3:F8").setBackground("#ffffff");
   dashSheet.getRange("E12:F14").setBackground("#F0FFFF").setHorizontalAlignment("center");
 
-  dashSheet.getRange("I3:I7").setBackground("#ffffff");
-  dashSheet.getRange("I8:I10").setBackground("#e6e8eb");
-  dashSheet.getRange("I11:I12").setBackground("#ffffff");
+  dashSheet.getRange("F17:F21").setBackground("#ffffff");
+  dashSheet.getRange("F22:F24").setBackground("#e6e8eb");
+  dashSheet.getRange("F25:F26").setBackground("#ffffff");
 
-  dashSheet.getRange("L3:L8").setBackground("#ffffff");
-  dashSheet.getRange("L9:L11").setBackground(colors.greenBg);
+  dashSheet.getRange("I3:I8").setBackground("#ffffff");
+  dashSheet.getRange("I9:I11").setBackground(colors.greenBg);
 
   dashSheet.setHiddenGridlines(true);
   dashSheet.setFrozenRows(1);
