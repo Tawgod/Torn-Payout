@@ -991,7 +991,7 @@ function buildDashboard() {
   dashSheet.getRange("H24:I31").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
 
   dashSheet.getRange("K15:L15").merge().setValue("🎯 Bonus Chain Hits").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("K16:L28").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
+  dashSheet.getRange("K16:L16").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
 
   // ==========================================
   // CUSTOM COLOR OVERRIDES & AUTO-FILL SHADING
