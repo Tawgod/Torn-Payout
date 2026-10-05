@@ -660,7 +660,7 @@ function buildDashboard() {
   dashSheet.setColumnWidth(2, 170);  // B: War Labels
   dashSheet.setColumnWidth(3, 200);  // C: War Values
   dashSheet.setColumnWidth(4, 15);   // D: Spacer
-  dashSheet.setColumnWidth(5, 170);  // E: Filter Labels
+  dashSheet.setColumnWidth(5, 195);  // E: Settings labels
   dashSheet.setColumnWidth(6, 170);  // F: Filter Values
   dashSheet.setColumnWidth(7, 15);   // G: Spacer
   dashSheet.setColumnWidth(8, 170);  // H: Finance Labels
