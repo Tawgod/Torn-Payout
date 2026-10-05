@@ -85,7 +85,7 @@ function addPushSetting(startTime, startDate, timeLimitMin) {
 }
 
 // Manual edits grow the Push Settings lane automatically.
-function onEdit(e) {
+function handlePushSettingsEdit_(e) {
   try {
     if (!e || !e.range) return;
     const sheet = e.range.getSheet();
