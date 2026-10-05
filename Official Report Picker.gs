@@ -262,8 +262,8 @@ function writeDashboardBoundary_(dash, dateLabel, timeLabel, unix) {
   const day = Number(Utilities.formatDate(d, "GMT", "dd"));
   const time = Utilities.formatDate(d, "GMT", "HH:mm:ss");
 
-  const dateHit = findLabelCell_(dash, dateLabel);
-  const timeHit = findLabelCell_(dash, timeLabel);
+  const dateHit = findLabelCellInRange_(dash, "E8:F12", dateLabel);
+  const timeHit = findLabelCellInRange_(dash, "E8:F12", timeLabel);
   if (!dateHit || !timeHit) throw new Error("Custom time window fields were not found on Dashboard.");
 
   dateHit.valueRange.setValue(new Date(Date.UTC(y, m - 1, day))).setNumberFormat("yyyy-MM-dd");
