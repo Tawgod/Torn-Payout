@@ -607,22 +607,21 @@ function buildDashboard() {
       sd.enemyId = dashSheet.getRange("C4").getValue();
       sd.termed = dashSheet.getRange("C13").getValue();
       
-      sd.totLim = dashSheet.getRange("F3").getValue();
-      sd.warLim = dashSheet.getRange("F4").getValue();
-      sd.chainLim = dashSheet.getRange("F5").getValue();
-      sd.payPost = dashSheet.getRange("F6").getValue();
-      
-      // Use getDisplayValue() for dates/times to prevent formatting corruption
-      sd.sDate = dashSheet.getRange("F9").getDisplayValue(); 
-      sd.sTime = dashSheet.getRange("F10").getDisplayValue();
-      sd.eDate = dashSheet.getRange("F11").getDisplayValue();
-      sd.eTime = dashSheet.getRange("F12").getDisplayValue();
-      
-      sd.warRep = dashSheet.getRange("F15").getValue();
-      sd.chainRep = dashSheet.getRange("F16").getValue();
+      sd.totLim = labelValue_(dashSheet, "Total Hits (Max Limit)", "");
+      sd.warLim = labelValue_(dashSheet, "Max War Hits", "");
+      sd.chainLim = labelValue_(dashSheet, "Max Chain Hits (Faction Total)", labelValue_(dashSheet, "Max Chain Hits", ""));
+      sd.payPost = labelValue_(dashSheet, "Pay Post-War Chain?", "Yes");
 
-      sd.factionCut = dashSheet.getRange("I10").getValue();
-      sd.maxFactionCut = dashSheet.getRange("I11").getValue();
+      // Preserve report/time values by label so layout changes remain safe.
+      sd.sDate = labelValue_(dashSheet, "Start Date", "");
+      sd.sTime = labelValue_(dashSheet, "Start Time", "");
+      sd.eDate = labelValue_(dashSheet, "End Date", "");
+      sd.eTime = labelValue_(dashSheet, "End Time", "");
+      sd.warRep = labelValue_(dashSheet, "War Report ID", "");
+      sd.chainRep = labelValue_(dashSheet, "Chain Report ID", "");
+
+      sd.factionCut = labelValue_(dashSheet, "Faction Cut %", 0.06);
+      sd.maxFactionCut = labelValue_(dashSheet, "Max Faction Cut ($)", "");
 
       // Preserve Push Settings from the dynamic block, with legacy/current layout fallback.
       try {
@@ -632,18 +631,13 @@ function buildDashboard() {
         catch (_e) { sd.pushSettings = []; }
       }
 
-      // Preserve the payout preset across current and prior test layouts.
-      try {
-        const qHeader = String(dashSheet.getRange("Q2").getDisplayValue() || "");
-        const kTopHeader = String(dashSheet.getRange("K2").getDisplayValue() || "");
-        const kLowerHeader = String(dashSheet.getRange("K30").getDisplayValue() || "");
-        if (qHeader.indexOf("PAYOUT PRESET") !== -1) sd.preset = dashSheet.getRange("R3").getValue();
-        else if (kTopHeader.indexOf("PAYOUT PRESET") !== -1) sd.preset = dashSheet.getRange("L3").getValue();
-        else if (kLowerHeader.indexOf("PAYOUT PRESET") !== -1) sd.preset = dashSheet.getRange("L31").getValue();
-        else sd.preset = "Custom";
-      } catch (e) { sd.preset = "Custom"; }
+      sd.preset = labelValue_(dashSheet, "Payout Preset", "Custom");
 
-      sd.tiers = dashSheet.getRange("E19:F21").getValues();
+      try {
+        const cw = findLabelCell_(dashSheet, "Watch Time Limit");
+        if (cw) sd.tiers = dashSheet.getRange(cw.labelRange.getRow() + 1, cw.labelRange.getColumn(), 3, 2).getValues();
+        else sd.tiers = [];
+      } catch (e) { sd.tiers = []; }
     } catch(e) {}
   }
 
@@ -670,14 +664,12 @@ function buildDashboard() {
   dashSheet.setColumnWidth(8, 170);  // H: Finance Labels
   dashSheet.setColumnWidth(9, 130);  // I: Finance Values
   dashSheet.setColumnWidth(10, 15);  // J: Spacer
-  dashSheet.setColumnWidth(11, 150); // K: Bonus Chain Hit name
-  dashSheet.setColumnWidth(12, 90);  // L: Bonus Chain multiplier
+  dashSheet.setColumnWidth(11, 170); // K: Financial labels
+  dashSheet.setColumnWidth(12, 130); // L: Financial values
   dashSheet.setColumnWidth(13, 15);  // M: Spacer
   dashSheet.setColumnWidth(14, 95);  // N: Push Start Time
   dashSheet.setColumnWidth(15, 105); // O: Push Start Date
   dashSheet.setColumnWidth(16, 120); // P: Push Time Limit
-  dashSheet.setColumnWidth(17, 150); // Q: Payout Preset labels
-  dashSheet.setColumnWidth(18, 110); // R: Payout Preset values
 
   // --- COLOR PALETTE (From your file) ---
   const colors = {
@@ -739,129 +731,111 @@ function buildDashboard() {
   dashSheet.getRange("B16:C19").setValues(chainLabels);
 
   // ==========================================
-  // MIDDLE COLUMN: FILTERS, TIME, REPORTS
+  // SETTINGS GROUP 1: REPORTS & TIME
   // ==========================================
-  buildBlock("E2:F6", "E2:F2", "⚙️ PAYOUT FILTERS", colors.orangeHeader, colors.orangeBg);
-  dashSheet.getRange("E3:F6").setValues([
-    ["Total Hits (Max Limit)", ""], 
-    ["Max War Hits", ""], 
-    ["Max Chain Hits (Faction Total)", ""],
-    ["Pay Post-War Chain?", "Yes"]
-  ]);
-  dashSheet.getRange("F6").setDataValidation(yesNoRule);
-
-  buildBlock("E8:F12", "E8:F8", "⏳ CUSTOM TIME WINDOW", "#1a73e8", colors.orangeBg);
-  dashSheet.getRange("E9:F12").setValues([
-    ["Start Date", ""], ["Start Time", ""], ["End Date", ""], ["End Time", ""]
+  buildBlock("E2:F8", "E2:F2", "📋 REPORTS & TIME", colors.purpleHeader, colors.purpleBg);
+  dashSheet.getRange("E3:F8").setValues([
+    ["War Report ID", def(sd.warRep, "")],
+    ["Chain Report ID", def(sd.chainRep, "")],
+    ["Start Date", def(sd.sDate, "")],
+    ["Start Time", def(sd.sTime, "")],
+    ["End Date", def(sd.eDate, "")],
+    ["End Time", def(sd.eTime, "")]
   ]);
 
-  buildBlock("E14:F16", "E14:F14", "📋 OFFICIAL REPORTS", colors.purpleHeader, colors.purpleBg);
-  dashSheet.getRange("E15:F16").setValues([
-    ["War Report ID", ""],               
-    ["Chain Report ID", ""]                   
-  ]);
-
-  // ---> MULTI-TIER CHAIN WATCH <---
-  buildBlock("E18:F21", "E18:F18", "⏱️ CHAIN WATCH", colors.purpleHeader, colors.purpleBg);
-  // Row 19 is the Time/Weight Input. E18 is actually the Header in buildBlock. 
-  // Let's manually set E18 to Sub-headers to fit your exact request
-  dashSheet.getRange("E18:F18").breakApart().setValues([["Watch Time Limit", "Weight"]]).setBackground(colors.purpleBg).setFontColor("#000000");
-  
-  dashSheet.getRange("E19:F21").setValues([
+  // ==========================================
+  // SETTINGS GROUP 2: CHAIN WATCH
+  // ==========================================
+  buildBlock("E10:F14", "E10:F10", "⏱️ CHAIN WATCH", "#1a73e8", colors.purpleBg);
+  dashSheet.getRange("E11:F11").setValues([["Watch Time Limit", "Weight"]])
+    .setBackground(colors.purpleBg).setFontWeight("bold").setHorizontalAlignment("center");
+  dashSheet.getRange("E12:F14").setValues([
     ["3:00", ".5"],
     ["", ""],
     ["", ""]
   ]);
+  if (sd.tiers && sd.tiers.length > 0) dashSheet.getRange("E12:F14").setValues(sd.tiers);
 
   // ==========================================
-  // RIGHT COLUMN: WAR FINANCIALS
+  // SETTINGS GROUP 3: PAYOUT SETTINGS
   // ==========================================
-  buildBlock("H2:I13", "H2:I2", "💰 WAR FINANCIALS", colors.greenHeader, colors.greenBg);
+  buildBlock("H2:I12", "H2:I2", "⚙️ PAYOUT SETTINGS", colors.orangeHeader, colors.orangeBg);
+  const presetCfg = (typeof getPresetConfig_ === "function") ? getPresetConfig_() : {defaultCut: 0.06, defaultMaxCut: ""};
+  dashSheet.getRange("H3:I12").setValues([
+    ["Total Hits (Max Limit)", def(sd.totLim, "")],
+    ["Max War Hits", def(sd.warLim, "")],
+    ["Max Chain Hits (Faction Total)", def(sd.chainLim, "")],
+    ["Pay Post-War Chain?", def(sd.payPost, "Yes")],
+    ["Payout Preset", def(sd.preset, "Custom")],
+    ["Preset Cut", presetCfg.defaultCut],
+    ["Preset Max Cut", presetCfg.defaultMaxCut],
+    ["Weights", "TBD / Current"],
+    ["Faction Cut %", def(sd.factionCut, presetCfg.defaultCut)],
+    ["Max Faction Cut ($)", def(sd.maxFactionCut, presetCfg.defaultMaxCut)]
+  ]);
+  dashSheet.getRange("I6").setDataValidation(yesNoRule);
+
+  const presetRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Custom", "Termed Win", "Termed Loss", "Real War"], true)
+    .setAllowInvalid(false)
+    .build();
+  dashSheet.getRange("I7").setDataValidation(presetRule);
+  dashSheet.getRange("I8").setNumberFormat("0%");
+  dashSheet.getRange("I9").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("I11").setNumberFormat("0%");
+  dashSheet.getRange("I12").setNumberFormat('"$ "#,##0');
+
+  // ==========================================
+  // SETTINGS GROUP 4: WAR FINANCIALS
+  // ==========================================
+  buildBlock("K2:L13", "K2:L2", "💰 WAR FINANCIALS", colors.greenHeader, colors.greenBg);
   const financeLabels = [
-    ["Total Revenue", "0"],                   
-    ["- Temp Cost", "0"],                     
-    ["- Revives", "0"],                       
-    ["- Xanax", "0"],         
-    ["- Approved Bounties", "0"],             
-    ["- Other Cost", "0"],                    
-    ["NET PROFIT", "0"],                      
-    ["Faction Cut %", def(sd.factionCut, 0.06)],  
-    ["Max Faction Cut ($)", def(sd.maxFactionCut, "")],              
-    ["Actual Faction Deduction", "0"],        
-    ["PAYOUT TOTAL", "0"]                     
+    ["Total Revenue", "0"],
+    ["- Temp Cost", "0"],
+    ["- Revives", "0"],
+    ["- Xanax", "0"],
+    ["- Approved Bounties", "0"],
+    ["- Other Cost", "0"],
+    ["NET PROFIT", "0"],
+    ["Actual Faction Deduction", "0"],
+    ["PAYOUT TOTAL", "0"],
+    ["", ""],
+    ["", ""]
   ];
-  dashSheet.getRange("H3:I13").setValues(financeLabels);
-  
-  dashSheet.getRange("H9:I9").setFontWeight("bold");
-  dashSheet.getRange("H13:I13").setFontWeight("bold").setBackground(colors.greenBg);
+  dashSheet.getRange("K3:L13").setValues(financeLabels);
 
   let bountySheetName = (typeof SETTINGS !== "undefined" && SETTINGS.bountySheet) ? SETTINGS.bountySheet : "Bounties";
-  dashSheet.getRange("I7").setFormula(`=IFERROR(SUMIFS('${bountySheetName}'!E:E, '${bountySheetName}'!F:F, "Approved"), 0)`);
-  dashSheet.getRange("I9").setFormula("=IFERROR(I3 - SUM(I4:I8), 0)");
-  dashSheet.getRange("I12").setFormula('=IFERROR(MIN(I9*I10, IF(I11="", I9*I10, I11)), 0)');
-  dashSheet.getRange("I13").setFormula("=IFERROR(I9-I12, 0)"); 
-
-  dashSheet.getRange("C12").setNumberFormat('"$ "#,##0');
-  dashSheet.getRange("I3:I9").setNumberFormat('"$ "#,##0');
-  dashSheet.getRange("I10").setNumberFormat('0%');
-  dashSheet.getRange("I11:I13").setNumberFormat('"$ "#,##0');
+  dashSheet.getRange("L7").setFormula(`=IFERROR(SUMIFS('${bountySheetName}'!E:E, '${bountySheetName}'!F:F, "Approved"), 0)`);
+  dashSheet.getRange("L9").setFormula("=IFERROR(L3 - SUM(L4:L8), 0)");
+  dashSheet.getRange("L10").setFormula('=IFERROR(MIN(L9*I11, IF(I12="", L9*I11, I12)), 0)');
+  dashSheet.getRange("L11").setFormula("=IFERROR(L9-L10, 0)");
+  dashSheet.getRange("L9:L11").setFontWeight("bold");
+  dashSheet.getRange("L3:L11").setNumberFormat('"$ "#,##0');
 
   // ==========================================
-  // PUSH SETTINGS — dynamic, bot-friendly lane
+  // SETTINGS GROUP 5: PUSH SETTINGS
   // ==========================================
   const pushRows = (sd.pushSettings && sd.pushSettings.length) ? sd.pushSettings : [];
   buildPushSettingsBlock_(dashSheet, pushRows);
 
   // ==========================================
-  // PAYOUT PRESET SELECTOR — separate lane
+  // INPUT / AUTO-FILL SHADING
   // ==========================================
-  buildBlock("Q2:R6", "Q2:R2", "🎛️ PAYOUT PRESET", colors.purpleHeader, colors.purpleBg);
-  const presetCfg = (typeof getPresetConfig_ === "function") ? getPresetConfig_() : {defaultCut: 0.06, defaultMaxCut: ""};
-  dashSheet.getRange("Q3:R6").setValues([
-    ["Payout Preset", def(sd.preset, "Custom")],
-    ["Preset Cut", presetCfg.defaultCut],
-    ["Preset Max Cut", presetCfg.defaultMaxCut],
-    ["Weights", "TBD / Current"]
-  ]);
-  const presetRule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(["Custom", "Termed Win", "Termed Loss", "Real War"], true)
-    .setAllowInvalid(false)
-    .build();
-  dashSheet.getRange("R3").setDataValidation(presetRule).setBackground("#ffffff");
-  dashSheet.getRange("R4").setNumberFormat("0%");
-  dashSheet.getRange("R5").setNumberFormat('"$ "#,##0');
-  dashSheet.getRange("R4:R6").setBackground("#e6e8eb");
+  dashSheet.getRange("C4:C7").setBackground("#e6e8eb");
+  dashSheet.getRange("C9:C12").setBackground("#e6e8eb");
+  dashSheet.getRange("C16:C19").setBackground("#e6e8eb");
+  dashSheet.getRange("C4").setBackground("#ffffff");
+  dashSheet.getRange("C13").setBackground("#ffffff").setDataValidation(yesNoRule);
 
-  // ==========================================
-  // CUSTOM COLOR OVERRIDES & AUTO-FILL SHADING
-  // ==========================================
-  // Shade Auto-Fill / Read-Only boxes light gray
-  dashSheet.getRange("C4:C7").setBackground("#e6e8eb"); 
-  dashSheet.getRange("C9:C12").setBackground("#e6e8eb"); 
-  dashSheet.getRange("C16:C19").setBackground("#e6e8eb"); 
+  dashSheet.getRange("F3:F8").setBackground("#ffffff");
+  dashSheet.getRange("E12:F14").setBackground("#F0FFFF").setHorizontalAlignment("center");
 
-  // Make manual entry boxes bright white
-  dashSheet.getRange("C4").setBackground("#ffffff"); // Faction ID
-  dashSheet.getRange("C13").setBackground("#ffffff"); // Termed?
-  dashSheet.getRange("F3:F6").setBackground("#ffffff"); // Payout Filters
-  dashSheet.getRange("F9:F12").setBackground("#ffffff"); // Time Window
-  dashSheet.getRange("F15:F16").setBackground("#ffffff"); // Report IDs
-  dashSheet.getRange("E19:F21").setBackground("#F0FFFF").setHorizontalAlignment("center"); // Multi-Tier times & weights
+  dashSheet.getRange("I3:I7").setBackground("#ffffff");
+  dashSheet.getRange("I8:I10").setBackground("#e6e8eb");
+  dashSheet.getRange("I11:I12").setBackground("#ffffff");
 
-  dashSheet.getRange("E6").setBackground(dashSheet.getRange("E3").getBackground());
-  let colorI13 = dashSheet.getRange("I13").getBackground();
-  dashSheet.getRange("I9").setBackground(colorI13);
-  dashSheet.getRange("I11").setBackground(colorI13);
-
-  // Formatting specific sections (From your file)
-  dashSheet.getRange("E8:F8").setBackground("#1a73e8").setFontColor("#ffffff"); // Vibrant Blue Time Window
-  dashSheet.getRange("E18:F18").setBackground("#1a73e8").setFontColor("#ffffff"); // Vibrant Blue Chain Watch
-  
-  // ---  RESTORE Chain save info ---
-  if (sd.tiers && sd.tiers.length > 0) {
-    // Stamps the Watch Time limits and Weights back into place
-    dashSheet.getRange("E19:F21").setValues(sd.tiers);
-  }
+  dashSheet.getRange("L3:L8").setBackground("#ffffff");
+  dashSheet.getRange("L9:L11").setBackground(colors.greenBg);
 
   dashSheet.setHiddenGridlines(true);
   dashSheet.setFrozenRows(1);
