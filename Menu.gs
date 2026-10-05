@@ -45,6 +45,7 @@ function onOpen() {
     .addItem('🧪 Test Legacy Archive (No Reset)', 'testArchiveOnly')
     .addItem('🧹 Clean Sweep (Reset Sheet)', 'cleanSweep')
     .addSeparator()
+    .addItem('🏆 Refresh Awards', 'refreshAwards')
     .addItem('🔍 Run Auto-Auditor', 'runPayoutAudit')
     .addItem('Rebuild Dashboard UI', 'buildDashboard')
     .addToUi();
