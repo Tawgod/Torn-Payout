@@ -665,13 +665,10 @@ function buildDashboard() {
   dashSheet.setColumnWidth(7, 15);   // G: Spacer
   dashSheet.setColumnWidth(8, 170);  // H: Finance Labels
   dashSheet.setColumnWidth(9, 130);  // I: Finance Values
-  dashSheet.setColumnWidth(10, 15);  // J: Spacer
+  dashSheet.setColumnWidth(10, 120); // J: Push Time Limit
   dashSheet.setColumnWidth(11, 170); // K: Financial labels
   dashSheet.setColumnWidth(12, 130); // L: Financial values
-  dashSheet.setColumnWidth(13, 15);  // M: Spacer
-  dashSheet.setColumnWidth(14, 95);  // N: Push Start Time
-  dashSheet.setColumnWidth(15, 105); // O: Push Start Date
-  dashSheet.setColumnWidth(16, 120); // P: Push Time Limit
+  dashSheet.setColumnWidth(13, 15);  // M: Spare
 
   // --- COLOR PALETTE (From your file) ---
   const colors = {
