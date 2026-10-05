@@ -648,9 +648,11 @@ function buildDashboard() {
   if (!dashSheet) {
     dashSheet = ss.insertSheet(sheetName);
   } else {
+    // Clear validations across the full grid BEFORE clearing contents.
+    // getDataRange() can collapse after clear(), leaving stale validations behind.
+    dashSheet.getRange(1, 1, dashSheet.getMaxRows(), dashSheet.getMaxColumns()).clearDataValidations();
     dashSheet.clear();
     dashSheet.clearFormats();
-    dashSheet.getDataRange().clearDataValidations();
   }
 
   // --- 3. EXACT COLUMN WIDTHS ---
