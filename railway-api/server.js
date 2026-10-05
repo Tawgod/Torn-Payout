@@ -63,7 +63,7 @@ function tornApiKeyForFaction(factionKey) {
 const TORN_ALLOWED_SCOPES = new Set(["torn", "faction", "user"]);
 const TORN_ALLOWED_SELECTIONS = new Set([
   "items", "rankedwarreport", "chainreport", "news", "basic",
-  "fundsnews", "profile", "rankedwars"
+  "fundsnews", "profile", "rankedwars", "chains"
 ]);
 
 function validateTornRequest(scope, selectionsRaw) {
