@@ -30,6 +30,17 @@ function readPushSettingsFromDashboard_(sheet) {
 
 function buildPushSettingsBlock_(sheet, rows) {
   rows = Array.isArray(rows) ? rows : [];
+
+  // Remove prior test/original Push Settings layouts before drawing the current block.
+  ["N2:P50", "K2:M50"].forEach(a1 => {
+    try {
+      const r = sheet.getRange(a1);
+      r.breakApart();
+      r.clearContent();
+      r.clearFormat();
+      r.clearDataValidations();
+    } catch (_e) {}
+  });
   const visibleRows = Math.max(3, rows.length + 1);
   const startRow = 17;
   const endRow = startRow + visibleRows - 1;
