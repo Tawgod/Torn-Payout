@@ -50,3 +50,25 @@ function setLabelValue_(sheet, label, value) {
   hit.valueRange.setValue(value === null || value === undefined ? "" : value);
   return true;
 }
+
+
+function findLabelCellInRange_(sheet, rangeA1, label) {
+  if (!sheet) return null;
+  const wanted = normalizeHeader_(label);
+  const range = sheet.getRange(rangeA1);
+  const data = range.getValues();
+  const startRow = range.getRow();
+  const startCol = range.getColumn();
+  for (let r = 0; r < data.length; r++) {
+    for (let c = 0; c < data[r].length - 1; c++) {
+      if (normalizeHeader_(data[r][c]) === wanted) {
+        return {
+          labelRange: sheet.getRange(startRow + r, startCol + c),
+          valueRange: sheet.getRange(startRow + r, startCol + c + 1),
+          value: data[r][c + 1]
+        };
+      }
+    }
+  }
+  return null;
+}
