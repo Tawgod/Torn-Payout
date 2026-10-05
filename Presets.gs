@@ -101,5 +101,6 @@ function onEditPayoutPreset_(e) {
 
 function onEdit(e) {
   if (typeof handleDashboardSyncEdit_ === "function") handleDashboardSyncEdit_(e);
+  if (typeof handlePushSettingsEdit_ === "function") handlePushSettingsEdit_(e);
   onEditPayoutPreset_(e);
 }
