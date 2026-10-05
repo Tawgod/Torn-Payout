@@ -20,10 +20,12 @@ function importWarData(silentMode) {
   }
 
   // 1. Read Time Filters from Dashboard by label so layout changes are safe.
-  let startDateVal = labelValue_(dashSheet, "Start Date", "");
-  let endDateVal = labelValue_(dashSheet, "End Date", "");
-  const startTimeHit = findLabelCell_(dashSheet, "Start Time");
-  const endTimeHit = findLabelCell_(dashSheet, "End Time");
+  const startDateHit = findLabelCellInRange_(dashSheet, "E8:F12", "Start Date");
+  const endDateHit = findLabelCellInRange_(dashSheet, "E8:F12", "End Date");
+  let startDateVal = startDateHit ? startDateHit.value : "";
+  let endDateVal = endDateHit ? endDateHit.value : "";
+  const startTimeHit = findLabelCellInRange_(dashSheet, "E8:F12", "Start Time");
+  const endTimeHit = findLabelCellInRange_(dashSheet, "E8:F12", "End Time");
   let startTimeStr = startTimeHit ? startTimeHit.valueRange.getDisplayValue() : "";
   let endTimeStr = endTimeHit ? endTimeHit.valueRange.getDisplayValue() : "";
 
