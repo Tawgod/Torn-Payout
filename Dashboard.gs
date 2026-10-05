@@ -585,144 +585,11 @@ function refreshDashboard() {
   }
 
   // ==========================================
-  // 4. LEADERBOARDS (Avg Respect & Top Contribution)
+  // 4. AWARDS TAB
   // ==========================================
-  let payoutSheet = ss.getSheetByName(SETTINGS.payoutSheet);
-  if (payoutSheet && payoutSheet.getLastRow() >= 3) {
-    let pData = payoutSheet.getRange(3, 1, payoutSheet.getLastRow() - 2, 15).getValues();
-    let respectData = [];
-    let contribData = [];
-
-    for (let row of pData) {
-      let name = row[1];
-      let contrib = parseFloat(row[2]) || 0;
-      let wh = parseFloat(row[4]) || 0;
-      let ch = parseFloat(row[8]) || 0;
-      let respect = parseFloat(row[11]) || 0;
-      let totalHits = wh + ch;
-      let safeName = name ? name.toString().toLowerCase().trim() : "";
-      
-      if (safeName && !safeName.includes("left faction") && safeName !== "totals" && safeName !== "total") {
-        contribData.push({name: name, val: contrib});
-        if (totalHits > 0) {
-          respectData.push({name: name, val: respect / totalHits});
-        }
-      }
-    }
-
-    respectData.sort((a, b) => b.val - a.val);
-    contribData.sort((a, b) => b.val - a.val);
-
-    // --- Print Top 4 Avg Respect per Hit ---
-    dashSheet.getRange("H16:I19").clearContent(); // Safely clear content, leave borders alone
-    let respectOutput = [];
-    for (let i = 0; i < Math.min(4, respectData.length); i++) {
-      respectOutput.push([respectData[i].name, respectData[i].val]);
-    }
-    if (respectOutput.length > 0) {
-      dashSheet.getRange(16, 8, respectOutput.length, 2).setValues(respectOutput);
-    }
-    dashSheet.getRange("I16:I19").setNumberFormat("0.00");
-
-    // --- Print Top 8 Contribution (Shifted to row 24 for new layout) ---
-    dashSheet.getRange("H24:I31").clearContent(); 
-    let contribOutput = [];
-    for (let i = 0; i < Math.min(8, contribData.length); i++) {
-      contribOutput.push([contribData[i].name, contribData[i].val]);
-    }
-    if (contribOutput.length > 0) {
-      dashSheet.getRange(24, 8, contribOutput.length, 2).setValues(contribOutput);
-    }
-    dashSheet.getRange("I24:I31").setNumberFormat("0.00%");
+  if (typeof refreshAwards === "function") {
+    refreshAwards();
   }
-
-  // ==========================================
-  // 5. BONUS CHAIN HITS LEADERBOARD (FIXED MAP & SAFE FORMAT)
-  // ==========================================
-  let rdSheetBonus = ss.getSheetByName(SETTINGS.rdSheet || "RD");
-  let bonusMap = new Map();
-  
-  if (rdSheetBonus && rdSheetBonus.getLastRow() > 1) {
-    let rdBonusData = rdSheetBonus.getDataRange().getValues();
-    const rdBonusHeaders = headerMapFromRow_(rdBonusData[0] || []);
-    const aFacCol = headerIndex_(rdBonusHeaders, ["Attacker Faction", "Attacker Faction ID"], true);
-    const aNameCol = headerIndex_(rdBonusHeaders, "Attacker Name", true);
-    const cBonusCol = headerIndex_(rdBonusHeaders, "Chain Bonus", false);
-    for (let r = 1; r < rdBonusData.length; r++) {
-      let aFac = rdBonusData[r][aFacCol] ? rdBonusData[r][aFacCol].toString().replace(/,/g, "").trim() : "";
-      let aName = rdBonusData[r][aNameCol] ? rdBonusData[r][aNameCol].toString().trim() : "Unknown";
-      let cBonus = cBonusCol >= 0 ? (parseFloat(rdBonusData[r][cBonusCol]) || 0) : 0;
-      if (aFac === myFactionId && cBonus >= 10) {
-        if (!bonusMap.has(aName) || cBonus > bonusMap.get(aName)) {
-            bonusMap.set(aName, cBonus);
-        }
-      }
-    }
-  }
-
-  let bonusDataList = Array.from(bonusMap.entries()).map(([name, val]) => ({name, val}));
-  bonusDataList.sort((a, b) => b.val - a.val);
-
-  let maxRows = dashSheet.getMaxRows();
-  if (maxRows >= 16) {
-    dashSheet.getRange(16, 11, maxRows - 15, 2).clearContent().clearFormat();
-  }
-
-  let numBonusHits = Math.max(1, bonusDataList.length);
-  let targetRange = dashSheet.getRange(16, 11, numBonusHits, 2);
-  
-  // Reapply the gold format to however many rows were generated
-  targetRange.setBackground("#fff2cc").setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID);
-
-  let bonusOutput = [];
-  for (let i = 0; i < bonusDataList.length; i++) {
-    bonusOutput.push([bonusDataList[i].name, bonusDataList[i].val]);
-  }
-  
-  if (bonusOutput.length > 0) {
-    targetRange.setValues(bonusOutput);
-  }
-  dashSheet.getRange(16, 12, numBonusHits, 1).setNumberFormat("#,##0");
-
-  // ==========================================
-  // RESTORE STATIC LEADERBOARD FORMULAS (ALIGNED)
-  // ==========================================
-  let targetPayoutSheet = (typeof SETTINGS !== "undefined" && SETTINGS.payoutSheet) ? SETTINGS.payoutSheet : "Payouts";
-  dashSheet.getRange("B24").setFormula(`=IFERROR(QUERY('${targetPayoutSheet}'!B3:E, "SELECT B, E WHERE E > 0 ORDER BY E DESC LIMIT 3", 0), "")`);
-  dashSheet.getRange("B29").setFormula(`=IFERROR(QUERY('${targetPayoutSheet}'!B3:L, "SELECT B, L WHERE L > 0 ORDER BY L DESC LIMIT 3", 0), "")`);
-  dashSheet.getRange("E24").setFormula(`=IFERROR(QUERY('${targetPayoutSheet}'!B3:I, "SELECT B, I WHERE I > 0 ORDER BY I DESC LIMIT 3", 0), "")`);
-
-  // ==========================================
-  // TOP CHAIN SAVES (PULLED FROM PAYOUT TAB)
-  // ==========================================
-  let payoutSheetForSaves = ss.getSheetByName(SETTINGS.payoutSheet || "Payout");
-  if (payoutSheetForSaves) {
-    let payoutData = payoutSheetForSaves.getDataRange().getValues();
-    let savesLeaderboard = [];
-    for (let i = 2; i < payoutData.length; i++) {
-      let playerName = payoutData[i][1];
-      let playerSaves = parseFloat(payoutData[i][9]) || 0; // Parses standard & decimal tiers
-
-      if (playerName && playerSaves > 0) {
-        savesLeaderboard.push({name: playerName, val: playerSaves});
-      }
-    }
-
-    savesLeaderboard.sort((a, b) => b.val - a.val);
-    let savesOutput = [];
-    for (let i = 0; i < 3; i++) {
-      if (i < savesLeaderboard.length) {
-        savesOutput.push([savesLeaderboard[i].name, savesLeaderboard[i].val]);
-      } else {
-        savesOutput.push(["", ""]);
-      }
-    }
-
-    // Print the data directly into E29:F31
-    dashSheet.getRange("E29:F31").setValues(savesOutput);
-  }
-   // Format Top Respect to two decimal places
-  dashSheet.getRange("C29:C31").setNumberFormat("#,##0.00");
 }
 // ==========================================
 // DASHBOARD BUILDER (MASTER 1:1 VISUAL REPLICA)
@@ -966,34 +833,6 @@ function buildDashboard() {
   dashSheet.getRange("R4:R6").setBackground("#e6e8eb");
 
   // ==========================================
-  // BOTTOM LEADERBOARDS (From your original file)
-  // ==========================================
-  dashSheet.getRange("B23:C23").merge().setValue("🏆 TOP WAR HITS").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("B24:C26").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
-  dashSheet.getRange("B24").setFormula(`=IFERROR(QUERY(Payouts!B3:E, "SELECT B, E WHERE E > 0 ORDER BY E DESC LIMIT 3", 0), "")`);
-
-  dashSheet.getRange("B28:C28").merge().setValue("⭐ TOP RESPECT").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("B29:C31").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
-  dashSheet.getRange("B29").setFormula(`=IFERROR(QUERY(Payouts!B3:L, "SELECT B, L WHERE L > 0 ORDER BY L DESC LIMIT 3", 0), "")`);
-
-  dashSheet.getRange("E23:F23").merge().setValue("🔗 TOP CHAIN HITS").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("E24:F26").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
-  dashSheet.getRange("E24").setFormula(`=IFERROR(QUERY(Payouts!B3:I, "SELECT B, I WHERE I > 0 ORDER BY I DESC LIMIT 3", 0), "")`);
-
-  dashSheet.getRange("E28:F28").merge().setValue("🛡️ TOP CHAIN SAVES").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("E29:F31").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
-  dashSheet.getRange("E29").setFormula(`=IFERROR(QUERY(Payouts!B3:J, "SELECT B, J WHERE J > 0 ORDER BY J DESC LIMIT 3", 0), "")`);
-
-  dashSheet.getRange("H15:I15").merge().setValue("☑️ Avg Respect/Hit").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("H16:I19").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
-
-  dashSheet.getRange("H23:I23").merge().setValue("🏆 Top Contribution").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("H24:I31").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
-
-  dashSheet.getRange("K15:L15").merge().setValue("🎯 Bonus Chain Hits").setBackground(colors.goldHeader).setFontWeight("bold").setHorizontalAlignment("center");
-  dashSheet.getRange("K16:L16").setBackground(colors.goldBg).setBorder(true, true, true, true, true, true);
-
-  // ==========================================
   // CUSTOM COLOR OVERRIDES & AUTO-FILL SHADING
   // ==========================================
   // Shade Auto-Fill / Read-Only boxes light gray
@@ -1026,8 +865,12 @@ function buildDashboard() {
 
   dashSheet.setHiddenGridlines(true);
   dashSheet.setFrozenRows(1);
+
+  if (typeof buildAwardsSheet === "function") {
+    buildAwardsSheet();
+  }
   
   if (typeof SpreadsheetApp !== "undefined" && SpreadsheetApp.getUi) {
-    SpreadsheetApp.getUi().alert("✅ Full UI Rebuilt! Multi-tier saves added and all custom shading/leaderboards restored.");
+    SpreadsheetApp.getUi().alert("✅ Dashboard rebuilt and Awards tab refreshed.");
   }
 }
