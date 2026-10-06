@@ -79,18 +79,11 @@ function refreshAwards() {
   const topWarHits = topFromPayout(4, 10);
   const topChainHits = topFromPayout(8, 10);
   const topChainSaves = topFromPayout(9, 10);
-  const topRespect = topFromPayout(11, 10);
   const topContribution = topFromPayout(2, 10);
 
-  const avgRespect = pRows.filter(valid).map(r => {
-    const wh = parseFloat(r[4]) || 0;
-    const ch = parseFloat(r[8]) || 0;
-    const res = parseFloat(r[11]) || 0;
-    const hits = wh + ch;
-    return [r[1], hits > 0 ? res / hits : 0];
-  }).filter(r=>r[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,10);
-
-  let bonusMap = new Map();
+  let adjustedRespectMap = new Map();
+  let adjustedHitCountMap = new Map();
+  let bonusHits = [];
   let warlordMap = new Map();
   let retalMap = new Map();
   let overseasMap = new Map();
@@ -114,21 +107,30 @@ function refreshAwards() {
       const name = String(data[r][aNameCol] || "Unknown").trim();
       const respect = parseFloat(data[r][respectCol]) || 0;
       const cBonus = cBonusCol >= 0 ? (parseFloat(data[r][cBonusCol]) || 0) : 0;
+      const adjustedRespect = respect / (cBonus > 1 ? cBonus : 1);
       const ret = retCol >= 0 ? (parseFloat(data[r][retCol]) || 1) : 1;
       const overseas = overseasCol >= 0 ? (parseFloat(data[r][overseasCol]) || 1) : 1;
       const warlord = warlordCol >= 0 ? (parseFloat(data[r][warlordCol]) || 1) : 1;
 
       energyMap.set(name, (energyMap.get(name) || 0) + 25);
-      if (cBonus >= 10) bonusMap.set(name, Math.max(bonusMap.get(name) || 0, cBonus));
+      adjustedRespectMap.set(name, (adjustedRespectMap.get(name) || 0) + adjustedRespect);
+      adjustedHitCountMap.set(name, (adjustedHitCountMap.get(name) || 0) + 1);
+      if (cBonus >= 10) bonusHits.push([name, cBonus]);
       if (ret > 1) retalMap.set(name, (retalMap.get(name) || 0) + 1);
       if (overseas > 1) overseasMap.set(name, (overseasMap.get(name) || 0) + 1);
       if (warlord > 1) warlordMap.set(name, (warlordMap.get(name) || 0) + 1);
-      if (respect > 0) bestRespectHit.push([name, respect]);
+      if (adjustedRespect > 0) bestRespectHit.push([name, adjustedRespect]);
     }
   }
 
   const fromMap = (m,n=10) => Array.from(m.entries()).sort((a,b)=>b[1]-a[1]).slice(0,n);
+  const topRespect = fromMap(adjustedRespectMap, 10);
+  const avgRespect = Array.from(adjustedRespectMap.entries()).map(([name,total]) => {
+    const hits = adjustedHitCountMap.get(name) || 0;
+    return [name, hits > 0 ? total / hits : 0];
+  }).filter(r=>r[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,10);
   bestRespectHit.sort((a,b)=>b[1]-a[1]);
+  bonusHits.sort((a,b)=>b[1]-a[1]);
 
   writeAwardBlock_(awards, 4, 1, "⚔️ Top War Hits", topWarHits, "#,##0");
   writeAwardBlock_(awards, 4, 4, "🔗 Top Chain Hits", topChainHits, "#,##0");
@@ -137,7 +139,6 @@ function refreshAwards() {
   writeAwardBlock_(awards, 4, 13, "🏆 Top Contribution", topContribution, "0.00%");
 
   writeAwardBlock_(awards, 18, 1, "☑️ Best Respect / Hit", avgRespect, "#,##0.00");
-  writeAwardBlock_(awards, 18, 4, "🎯 Bonus Chain Hits", fromMap(bonusMap), "#,##0");
   writeAwardBlock_(awards, 18, 7, "🔥 Est. Energy Spent", fromMap(energyMap), "#,##0");
   writeAwardBlock_(awards, 18, 10, "🗡️ Warlord Hits", fromMap(warlordMap), "#,##0");
   writeAwardBlock_(awards, 18, 13, "↩️ Retaliations", fromMap(retalMap), "#,##0");
@@ -145,5 +146,9 @@ function refreshAwards() {
   writeAwardBlock_(awards, 32, 1, "🌍 Overseas Hits", fromMap(overseasMap), "#,##0");
   writeAwardBlock_(awards, 32, 4, "💥 Highest Respect Hit", bestRespectHit.slice(0,10), "#,##0.00");
 
-  awards.autoResizeRows(1, Math.min(60, awards.getMaxRows()));
+  // Dedicated open-ended lane: every actual chain-bonus hit is listed.
+  // Nothing is placed below this block so multi-chain windows can grow freely.
+  writeAwardBlock_(awards, 32, 7, "🎯 Bonus Chain Hits", bonusHits, "#,##0");
+
+  awards.autoResizeRows(1, Math.min(awards.getMaxRows(), Math.max(60, 34 + bonusHits.length)));
 }
