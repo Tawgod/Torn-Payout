@@ -2,6 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
+const { createPortalRouter } = require("./portal");
 
 const app = express();
 app.use(express.json({ limit: "8mb" }));
@@ -15,6 +16,9 @@ const API_TOKEN = process.env.ARCHIVE_API_TOKEN || "";
 const TORN_PROXY_TOKEN = process.env.TORN_PROXY_TOKEN || "";
 const TORN_PROXY_UPSTREAM_URL = (process.env.TORN_PROXY_UPSTREAM_URL || "").replace(/\/+$/, "");
 const PORT = Number(process.env.PORT || 3000);
+const PORTAL_SESSION_SECRET = process.env.PORTAL_SESSION_SECRET || "";
+
+app.use(createPortalRouter({ pool, sessionSecret: PORTAL_SESSION_SECRET }));
 
 function requireAuth(req, res, next) {
   if (!API_TOKEN) {
