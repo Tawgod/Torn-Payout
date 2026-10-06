@@ -146,7 +146,71 @@ button{background:var(--gold);border:0;border-radius:8px;padding:9px 12px;font-w
 <div><a href="/portal/logout">Sign out</a></div></div>${body}</main></body></html>`;
 }
 
-function createPortalRouter({ pool, sessionSecret }) {
+function sheetBridgeCanonical(request) {
+  return [
+    String(request.ts || ""),
+    String(request.nonce || ""),
+    String(request.action || ""),
+    String(request.faction || ""),
+    JSON.stringify(request.payload || {})
+  ].join(".");
+}
+
+async function callSheetBridge(bridge, faction, action, payload) {
+  if (!bridge || !bridge.url || !bridge.secret) {
+    const err = new Error("Sheet bridge is not configured for this faction.");
+    err.status = 503;
+    throw err;
+  }
+  const request = {
+    ts: Math.floor(Date.now() / 1000),
+    nonce: crypto.randomUUID(),
+    action,
+    faction,
+    payload: payload || {}
+  };
+  request.sig = crypto.createHmac("sha256", bridge.secret)
+    .update(sheetBridgeCanonical(request)).digest("base64url");
+
+  const response = await fetch(bridge.url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+    redirect: "follow"
+  });
+  const text = await response.text();
+  let body;
+  try { body = JSON.parse(text); } catch (_e) { body = { ok: false, error: text || "Invalid Sheet bridge response" }; }
+  if (!response.ok || !body.ok) {
+    const err = new Error(body.error || ("Sheet bridge returned HTTP " + response.status));
+    err.status = response.status >= 400 ? response.status : 502;
+    throw err;
+  }
+  return body.result;
+}
+
+const LIMITED_DASHBOARD_FIELDS = new Set([
+  "Enemy Faction Name", "Enemy Faction ID", "Official War Start", "Official War End",
+  "War ID", "Total War Hits", "War Score", "Outcome (Result)",
+  "First Attack Logged", "Latest Attack Logged", "Total Attacks Logged", "Total Respect Generated"
+]);
+
+function redactSnapshot(snapshot, access) {
+  if (access !== "limited") return snapshot;
+  const dashboard = {};
+  for (const [key, value] of Object.entries((snapshot && snapshot.dashboard) || {})) {
+    if (LIMITED_DASHBOARD_FIELDS.has(key)) dashboard[key] = value;
+  }
+  const safe = {
+    faction_key: snapshot && snapshot.faction_key,
+    generated_at: snapshot && snapshot.generated_at,
+    dashboard,
+    awards: snapshot && snapshot.awards ? snapshot.awards : []
+  };
+  return safe;
+}
+
+function createPortalRouter({ pool, sessionSecret, sheetBridges = {} }) {
   const router = express.Router();
 
   function identity(req) {
@@ -242,6 +306,41 @@ function createPortalRouter({ pool, sessionSecret }) {
     res.send(portalShell(ident, `<div class="card"><p><a href="/portal/faction/${encodeURIComponent(record.faction_key)}">← Back</a></p>
       <h2>${escapeHtml(record.enemy_name || record.public_title || "Payout")}</h2><p class="muted">${escapeHtml(record.faction_key)} · ${escapeHtml(record.war_id || record.legacy_key || "")}</p></div>
       ${financials}<div class="card"><h2>Member payout</h2><div class="scroll"><table><thead><tr>${tableHead}</tr></thead><tbody>${tableRows}</tbody></table></div></div>`));
+  });
+
+  router.get("/portal/api/snapshot/:faction", async (req, res) => {
+    const id = identity(req);
+    const faction = String(req.params.faction || "").toLowerCase();
+    if (!id || !factionAllowed(id, faction)) return res.status(403).json({ error: "Forbidden" });
+    try {
+      const result = await callSheetBridge(sheetBridges[faction], faction, "snapshot", {});
+      return res.json({ ok: true, snapshot: redactSnapshot(result, id.access) });
+    } catch (err) {
+      return res.status(err.status || 502).json({ error: err.message || "Sheet bridge failed" });
+    }
+  });
+
+  router.post("/portal/api/action/:faction", async (req, res) => {
+    const id = identity(req);
+    const faction = String(req.params.faction || "").toLowerCase();
+    if (!id || !accessAtLeast(id, "edit") || !factionAllowed(id, faction)) {
+      return res.status(403).json({ error: "Edit access required" });
+    }
+
+    const action = String((req.body && req.body.action) || "");
+    const allowed = new Set([
+      "set_dashboard_value", "set_dashboard_values", "add_push",
+      "refresh_dashboard", "refresh_awards", "fetch_reports_and_rd",
+      "build_payout", "calculate_payout", "build_final_payout"
+    ]);
+    if (!allowed.has(action)) return res.status(400).json({ error: "Unsupported portal action" });
+
+    try {
+      const result = await callSheetBridge(sheetBridges[faction], faction, action, (req.body && req.body.payload) || {});
+      return res.json({ ok: true, result });
+    } catch (err) {
+      return res.status(err.status || 502).json({ error: err.message || "Sheet bridge failed" });
+    }
   });
 
   router.get("/portal/api/session", (req, res) => {
