@@ -17,8 +17,18 @@ const TORN_PROXY_TOKEN = process.env.TORN_PROXY_TOKEN || "";
 const TORN_PROXY_UPSTREAM_URL = (process.env.TORN_PROXY_UPSTREAM_URL || "").replace(/\/+$/, "");
 const PORT = Number(process.env.PORT || 3000);
 const PORTAL_SESSION_SECRET = process.env.PORTAL_SESSION_SECRET || "";
+const PORTAL_SHEET_BRIDGES = {
+  ironsides: {
+    url: process.env.SHEET_BRIDGE_URL_IRONSIDES || "",
+    secret: process.env.SHEET_BRIDGE_SECRET_IRONSIDES || ""
+  },
+  resolute: {
+    url: process.env.SHEET_BRIDGE_URL_RESOLUTE || "",
+    secret: process.env.SHEET_BRIDGE_SECRET_RESOLUTE || ""
+  }
+};
 
-app.use(createPortalRouter({ pool, sessionSecret: PORTAL_SESSION_SECRET }));
+app.use(createPortalRouter({ pool, sessionSecret: PORTAL_SESSION_SECRET, sheetBridges: PORTAL_SHEET_BRIDGES }));
 
 function requireAuth(req, res, next) {
   if (!API_TOKEN) {
