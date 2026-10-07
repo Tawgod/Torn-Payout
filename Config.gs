@@ -36,7 +36,9 @@ const SETTINGS = {
   ],
   bountyHeaders: [
     "Date Logged", "Placed By", "Target", "Quantity", "Bounty Amount",
-    "Refund Amount", "Status", "Notes", "Source", "Torn News ID"
+    "Refund Amount", "Status", "Notes", "Source", "Torn News ID",
+    "Refundable War Bounty", "War ID", "War Verification", "Discord Message ID",
+    "Added To Payout", "Payout Reference"
   ],
   finalHeaders: [            
     "Member ID", "Name", "War Payout ($)", "Bounty Refunds ($)", "Misc. Adjustments ($)", "Total Final Payout ($)", "One-Click Pay Link", "Payment Status" 
