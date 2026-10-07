@@ -58,3 +58,25 @@ CREATE INDEX IF NOT EXISTS archive_member_war_idx
 ALTER TABLE archive_wars ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
 ALTER TABLE archive_wars ADD COLUMN IF NOT EXISTS public_title TEXT;
 CREATE INDEX IF NOT EXISTS archive_wars_public_idx ON archive_wars (faction_key, published_at DESC) WHERE published_at IS NOT NULL;
+
+
+-- RFC War Bounty payout export queue. The war-bounty worker is the producer;
+-- this API is the authenticated consumer used by the payout workbook.
+CREATE TABLE IF NOT EXISTS war_bounty_payout_exports (
+  id BIGSERIAL PRIMARY KEY,
+  placement_id BIGINT NOT NULL UNIQUE,
+  request_id BIGINT,
+  faction_id BIGINT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  payout_reference TEXT NOT NULL UNIQUE,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  exported_at TIMESTAMPTZ,
+  sheet_reference TEXT
+);
+
+CREATE INDEX IF NOT EXISTS war_bounty_payout_exports_status_idx
+  ON war_bounty_payout_exports (faction_id, status, created_at);
