@@ -210,7 +210,29 @@ function redactSnapshot(snapshot, access) {
   return safe;
 }
 
-function createPortalRouter({ pool, sessionSecret, sheetBridges = {} }) {
+const liveCache = new Map();
+
+async function fetchChainWatch(upstream, factionId) {
+  if (!upstream || !upstream.url || !upstream.token) return null;
+  const qs = new URLSearchParams({ faction_id: String(factionId) });
+  const response = await fetch(upstream.url.replace(/\/+$/, "") + "/internal/payout-live?" + qs.toString(), {
+    headers: { Authorization: "Bearer " + upstream.token }
+  });
+  const text = await response.text();
+  let body;
+  try { body = JSON.parse(text); } catch (_e) { body = { error: text || "Invalid Chain Watch response" }; }
+  if (!response.ok) throw new Error(body.error || ("Chain Watch HTTP " + response.status));
+  return body.chain_watch || null;
+}
+
+function factionIdForKey(faction) {
+  const key = String(faction || "").toLowerCase();
+  if (key === "ironsides") return 40664;
+  if (key === "resolute") return 46442;
+  return 0;
+}
+
+function createPortalRouter({ pool, sessionSecret, sheetBridges = {}, chainWatchUpstream = {} }) {
   const router = express.Router();
 
   function identity(req) {
@@ -248,7 +270,7 @@ function createPortalRouter({ pool, sessionSecret, sheetBridges = {} }) {
     );
 
     const cards = factions.map(f => `<div class="card"><h2>${escapeHtml(f)}</h2>
-      <p><a href="/portal/faction/${encodeURIComponent(f)}">Open faction workspace →</a></p></div>`).join("");
+      <p><a href="/portal/faction/${encodeURIComponent(f)}">Open faction workspace →</a></p>${accessAtLeast(id, "view") ? `<p><a href="/portal/live/${encodeURIComponent(f)}">Current War dashboard →</a></p>` : ""}</div>`).join("");
 
     const recordRows = rows.rows.map(r => `<tr><td>${escapeHtml(r.faction_key)}</td><td><a href="/portal/record/${r.id}">${escapeHtml(r.enemy_name || r.public_title || "Archived payout")}</a></td>
       <td>${escapeHtml(r.war_id || r.legacy_key || "")}</td><td>${escapeHtml(r.outcome || "")}</td>
@@ -306,6 +328,111 @@ function createPortalRouter({ pool, sessionSecret, sheetBridges = {} }) {
     res.send(portalShell(ident, `<div class="card"><p><a href="/portal/faction/${encodeURIComponent(record.faction_key)}">← Back</a></p>
       <h2>${escapeHtml(record.enemy_name || record.public_title || "Payout")}</h2><p class="muted">${escapeHtml(record.faction_key)} · ${escapeHtml(record.war_id || record.legacy_key || "")}</p></div>
       ${financials}<div class="card"><h2>Member payout</h2><div class="scroll"><table><thead><tr>${tableHead}</tr></thead><tbody>${tableRows}</tbody></table></div></div>`));
+  });
+
+  router.get("/portal/live/:faction", async (req, res) => {
+    const id = identity(req);
+    const faction = String(req.params.faction || "").toLowerCase();
+    if (!id || !accessAtLeast(id, "view") || !factionAllowed(id, faction)) {
+      return res.status(403).send("Faction View access required.");
+    }
+
+    const liveApiUrl = "/portal/api/live/" + encodeURIComponent(faction);
+    const body = \`
+      <div class="card"><p><a href="/portal">← Portal</a></p>
+        <div class="top"><div><h2 style="margin:0">Current War · \${escapeHtml(faction)}</h2>
+        <p class="muted">Operational dashboard only. No payout or faction-financial data is loaded here.</p></div>
+        <div class="badge" id="refreshStatus">Loading…</div></div>
+      </div>
+      <div id="liveRoot"><div class="card">Loading current-war data…</div></div>
+      <script>
+      const root = document.getElementById("liveRoot");
+      const statusEl = document.getElementById("refreshStatus");
+      const liveApiUrl = \${JSON.stringify(liveApiUrl)};
+      const esc = v => String(v ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]));
+      const num = v => Number(v || 0).toLocaleString();
+      const money = v => "$" + Math.round(Number(v || 0)).toLocaleString();
+      const when = v => {
+        if (!v) return "—";
+        const d = new Date(v);
+        return Number.isNaN(d.getTime()) ? esc(v) : d.toLocaleString();
+      };
+      function stat(label, value) {
+        return '<div class="card"><span class="muted">'+esc(label)+'</span><h2 style="margin:.3rem 0 0">'+esc(value)+'</h2></div>';
+      }
+      function render(data) {
+        const w=data.war||{}, t=data.totals||{}, cw=data.chain_watch||{};
+        const members=(data.members||[]).slice(0,50);
+        const attacks=(data.recent_attacks||[]).slice(0,30);
+        const bounties=(data.bounties||[]).slice(0,50);
+        const memberRows=members.map(m=>'<tr><td>'+esc(m.name)+'</td><td>'+num(m.war_hits)+'</td><td>'+num(m.chain_hits)+'</td><td>'+num(m.assists)+'</td><td>'+Number(m.base_respect||0).toFixed(2)+'</td><td>'+num(m.retaliations)+'</td><td>'+num(m.interruptions)+'</td></tr>').join("");
+        const attackRows=attacks.map(a=>'<tr><td>'+when(a.time)+'</td><td>'+esc(a.attacker_name)+'</td><td>'+esc(a.defender_name||a.defender_id)+'</td><td>'+esc(a.result)+'</td><td>'+Number(a.base_respect||0).toFixed(2)+'</td><td>'+(Number(a.chain_bonus||1)>1 ? esc(a.chain_bonus)+'x' : '—')+'</td></tr>').join("");
+        const bountyRows=bounties.map(b=>'<tr><td>'+when(b.date_logged)+'</td><td>'+esc(b.placed_by)+'</td><td>'+esc(b.target)+'</td><td>'+num(b.quantity||1)+'</td><td>'+money(b.bounty_amount)+'</td><td>'+esc(b.status)+'</td></tr>').join("");
+        let chainCard='<div class="card"><h2>Chain Watch</h2><p class="muted">No active Chain Watch information is available.</p></div>';
+        if (cw && cw.active) {
+          chainCard='<div class="card"><h2>Chain Watch</h2><div class="grid">'+
+            stat("Risk", (cw.risk_status||"No Data")+" · "+num(cw.risk_score))+
+            stat("Current watcher", cw.current_watcher_name||"Unassigned")+
+            stat("Active watchers", num(cw.active_watcher_count))+
+            stat("Next watcher", cw.next_watcher_name||"Unassigned")+
+            stat("Scheduled next hour", num(cw.scheduled_next_hour))+
+            stat("Uncovered next hour", num(cw.uncovered_slots_next_hour))+
+          '</div></div>';
+        }
+        root.innerHTML =
+          '<div class="card"><h2>'+esc(w.enemy_name||"Current War")+'</h2><p class="muted">War '+esc(w.war_id||"—")+' · score '+num(w.war_score)+' · '+esc(w.outcome||"Ongoing")+'</p></div>'+
+          '<div class="grid">'+
+            stat("War hits",num(t.war_hits))+stat("Chain hits",num(t.chain_hits))+stat("Assists",num(t.assists))+
+            stat("Base respect",Number(t.base_respect||0).toFixed(2))+stat("Retaliations",num(t.retaliations))+
+            stat("Interruptions",num(t.interruptions))+stat("Overseas hits",num(t.overseas_hits))+stat("Chain bonus hits",num(t.chain_bonus_hits))+
+          '</div>'+
+          chainCard+
+          '<div class="card"><h2>Member Activity</h2><div class="scroll"><table><thead><tr><th>Member</th><th>War Hits</th><th>Chain Hits</th><th>Assists</th><th>Base Respect</th><th>Retals</th><th>Interrupts</th></tr></thead><tbody>'+memberRows+'</tbody></table></div></div>'+
+          '<div class="card"><h2>Recent Attacks</h2><div class="scroll"><table><thead><tr><th>Time</th><th>Attacker</th><th>Defender</th><th>Result</th><th>Base Respect</th><th>Chain Bonus</th></tr></thead><tbody>'+attackRows+'</tbody></table></div></div>'+
+          '<div class="card"><h2>Current Bounties</h2><div class="scroll"><table><thead><tr><th>Logged</th><th>Placed By</th><th>Target</th><th>Qty</th><th>Amount</th><th>Status</th></tr></thead><tbody>'+bountyRows+'</tbody></table></div></div>';
+      }
+      async function refreshLive() {
+        statusEl.textContent="Updating…";
+        try {
+          const r=await fetch(liveApiUrl,{cache:"no-store"});
+          const j=await r.json();
+          if(!r.ok) throw new Error(j.error||"Unable to load");
+          render(j.live);
+          statusEl.textContent="Updated "+new Date().toLocaleTimeString();
+        } catch(e) {
+          statusEl.textContent="Update failed";
+          root.innerHTML='<div class="card"><b>Live dashboard unavailable.</b><p class="muted">'+esc(e.message)+'</p></div>';
+        }
+      }
+      refreshLive();
+      setInterval(refreshLive,30000);
+      </script>\`;
+    res.send(portalShell(id, body));
+  });
+
+  router.get("/portal/api/live/:faction", async (req, res) => {
+    const id = identity(req);
+    const faction = String(req.params.faction || "").toLowerCase();
+    if (!id || !accessAtLeast(id, "view") || !factionAllowed(id, faction)) {
+      return res.status(403).json({ error: "Faction View access required" });
+    }
+    const now = Date.now();
+    const cached = liveCache.get(faction);
+    if (cached && now - cached.at < 15000) return res.json({ ok: true, live: cached.data, cached: true });
+    try {
+      const sheet = await callSheetBridge(sheetBridges[faction], faction, "war_live_snapshot", {});
+      let chainWatch = null;
+      try {
+        chainWatch = await fetchChainWatch(chainWatchUpstream, factionIdForKey(faction));
+      } catch (_e) {
+        chainWatch = { active: false, status: "Chain Watch unavailable" };
+      }
+      const live = Object.assign({}, sheet, { chain_watch: chainWatch });
+      liveCache.set(faction, { at: now, data: live });
+      return res.json({ ok: true, live, cached: false });
+    } catch (err) {
+      return res.status(err.status || 502).json({ error: err.message || "Live war dashboard unavailable" });
+    }
   });
 
   router.get("/portal/api/snapshot/:faction", async (req, res) => {
