@@ -52,12 +52,11 @@ jobs:
         working-directory: .deploy/apps-script
         run: clasp push --force
 
-      - name: Create Test Web Bridge deployment
+      - name: Update Test Web Bridge deployment
         working-directory: .deploy/apps-script
         run: |
-          clasp create-deployment --description "Torn Payout TEST Web Bridge"
-          echo "=== DEPLOYMENTS ==="
-          clasp list-deployments
+          clasp update-deployment AKfycbwWMNOC3o9HA3wMoEB6L1UM7ovTqAWO2T3EPgskXRqtu8MAERiO-scIVCmO1oUTqJ9VNA --description "Torn Payout TEST Web Bridge"
+          echo "Web bridge: https://script.google.com/macros/s/AKfycbwWMNOC3o9HA3wMoEB6L1UM7ovTqAWO2T3EPgskXRqtu8MAERiO-scIVCmO1oUTqJ9VNA/exec"
 
   deploy-production:
     if: ${{ inputs.target == 'production' }}
