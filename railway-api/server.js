@@ -27,8 +27,12 @@ const PORTAL_SHEET_BRIDGES = {
     secret: process.env.SHEET_BRIDGE_SECRET_RESOLUTE || ""
   }
 };
+const PORTAL_CHAIN_WATCH_UPSTREAM = {
+  url: process.env.CHAIN_WATCH_INTERNAL_URL || "",
+  token: process.env.CHAIN_WATCH_INTERNAL_TOKEN || ""
+};
 
-app.use(createPortalRouter({ pool, sessionSecret: PORTAL_SESSION_SECRET, sheetBridges: PORTAL_SHEET_BRIDGES }));
+app.use(createPortalRouter({ pool, sessionSecret: PORTAL_SESSION_SECRET, sheetBridges: PORTAL_SHEET_BRIDGES, chainWatchUpstream: PORTAL_CHAIN_WATCH_UPSTREAM }));
 
 function requireAuth(req, res, next) {
   if (!API_TOKEN) {
