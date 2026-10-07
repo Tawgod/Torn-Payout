@@ -96,6 +96,9 @@ function payoutWebDispatch_(action, payload) {
     case "snapshot":
       return buildPayoutWebSnapshot_();
 
+    case "war_live_snapshot":
+      return buildWarLiveSnapshot_();
+
     case "set_dashboard_value":
       return payoutWebSetDashboardValue_(payload);
 
@@ -222,4 +225,294 @@ function buildPayoutWebSnapshot_() {
     final_payout: payoutWebSheetValues_("Final Payout", 500, 30),
     awards: payoutWebSheetValues_("Awards", 500, 30)
   };
+}
+
+
+// ==========================================
+// CURRENT WAR LIVE DASHBOARD FEED
+// Operational data only — intentionally excludes payout/financial data.
+// ==========================================
+
+function payoutWebCleanId_(value) {
+  return value === null || value === undefined ? "" : String(value).replace(/,/g, "").trim();
+}
+
+function payoutWebSafeNumber_(value) {
+  const n = Number(value);
+  return isFinite(n) ? n : 0;
+}
+
+function payoutWebWarLiveBounties_(currentWarId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SETTINGS.bountySheet || "Bounties");
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const map = headerMapFromRow_(headers);
+
+  const optionalIndex = name => {
+    try { return headerIndex_(map, name, false); } catch (_e) { return -1; }
+  };
+
+  const idx = {
+    date: optionalIndex("Date Logged"),
+    placedBy: optionalIndex("Placed By"),
+    target: optionalIndex("Target"),
+    qty: optionalIndex("Quantity"),
+    amount: optionalIndex("Bounty Amount"),
+    refund: optionalIndex("Refund Amount"),
+    status: optionalIndex("Status"),
+    notes: optionalIndex("Notes"),
+    source: optionalIndex("Source"),
+    warId: optionalIndex("War ID"),
+    verification: optionalIndex("War Verification")
+  };
+
+  const rows = [];
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    const status = idx.status >= 0 ? String(row[idx.status] || "").trim() : "";
+    if (!row.some(v => v !== "" && v !== null)) continue;
+    if (/denied|invalid/i.test(status)) continue;
+
+    const warId = idx.warId >= 0 ? payoutWebCleanId_(row[idx.warId]) : "";
+    if (currentWarId && warId && warId !== currentWarId) continue;
+
+    rows.push({
+      date_logged: idx.date >= 0 && row[idx.date] instanceof Date
+        ? row[idx.date].toISOString()
+        : (idx.date >= 0 ? String(row[idx.date] || "") : ""),
+      placed_by: idx.placedBy >= 0 ? String(row[idx.placedBy] || "") : "",
+      target: idx.target >= 0 ? String(row[idx.target] || "") : "",
+      quantity: idx.qty >= 0 ? payoutWebSafeNumber_(row[idx.qty]) : 1,
+      bounty_amount: idx.amount >= 0 ? payoutWebSafeNumber_(row[idx.amount]) : 0,
+      refund_amount: idx.refund >= 0 ? payoutWebSafeNumber_(row[idx.refund]) : 0,
+      status: status,
+      notes: idx.notes >= 0 ? String(row[idx.notes] || "") : "",
+      source: idx.source >= 0 ? String(row[idx.source] || "") : "",
+      war_id: warId,
+      verification: idx.verification >= 0 ? String(row[idx.verification] || "") : ""
+    });
+  }
+
+  rows.sort((a, b) => {
+    const ta = Date.parse(a.date_logged || "") || 0;
+    const tb = Date.parse(b.date_logged || "") || 0;
+    return tb - ta;
+  });
+  return rows.slice(0, 100);
+}
+
+function buildWarLiveSnapshot_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = payoutWebBridgeConfig_();
+  const dash = ss.getSheetByName(SETTINGS.dashboardSheet);
+  const rd = ss.getSheetByName(SETTINGS.rdSheet || "RD");
+
+  const factionId = payoutWebCleanId_(
+    ss.getSheetByName(SETTINGS.configSheet)
+      .getRange(SETTINGS.factionIdCell || "B7")
+      .getValue()
+  );
+  const targetFactionId = dash ? payoutWebCleanId_(labelValue_(dash, "Enemy Faction ID", "")) : "";
+  const currentWarId = dash ? payoutWebCleanId_(labelValue_(dash, "War ID", labelValue_(dash, "War Report ID", ""))) : "";
+
+  const snapshot = {
+    faction_key: cfg.factionKey,
+    generated_at: new Date().toISOString(),
+    war: {
+      war_id: currentWarId,
+      enemy_name: dash ? String(labelValue_(dash, "Enemy Faction Name", "") || "") : "",
+      enemy_faction_id: targetFactionId,
+      official_start: dash ? String(labelValue_(dash, "Official War Start", "") || "") : "",
+      official_end: dash ? String(labelValue_(dash, "Official War End", "") || "") : "",
+      war_score: dash ? payoutWebSafeNumber_(labelValue_(dash, "War Score", 0)) : 0,
+      outcome: dash ? String(labelValue_(dash, "Outcome (Result)", "") || "") : ""
+    },
+    totals: {
+      attacks_logged: 0,
+      successful_hits: 0,
+      war_hits: 0,
+      chain_hits: 0,
+      assists: 0,
+      losses: 0,
+      interruptions: 0,
+      retaliations: 0,
+      overseas_hits: 0,
+      base_respect: 0,
+      raw_respect: 0,
+      chain_bonus_hits: 0
+    },
+    members: [],
+    recent_attacks: [],
+    chain_bonus_hits: [],
+    bounties: payoutWebWarLiveBounties_(currentWarId)
+  };
+
+  if (!rd || rd.getLastRow() < 2) return snapshot;
+
+  const data = rd.getDataRange().getValues();
+  const hm = headerMapFromRow_(data[0]);
+  const col = name => headerIndex_(hm, name, true);
+  const opt = name => headerIndex_(hm, name, false);
+
+  const tCol = headerIndex_(hm, ["End Time", "Timestamp", "End"], true);
+  const attackIdCol = opt("Attack ID");
+  const aIdCol = col("Attacker ID");
+  const aNameCol = col("Attacker Name");
+  const aFacCol = headerIndex_(hm, ["Attacker Faction", "Attacker Faction ID"], true);
+  const dIdCol = col("Defender ID");
+  const dNameCol = opt("Defender Name");
+  const dFacCol = headerIndex_(hm, ["Defender Faction", "Defender Faction ID"], true);
+  const resultCol = col("Result");
+  const respectCol = col("Respect");
+  const cBonusCol = opt("Chain Bonus");
+  const retaliationCol = opt("Retaliation");
+  const overseasCol = opt("Overseas");
+
+  const members = {};
+  const pendingInterrupts = {};
+
+  function memberFor(id, name) {
+    if (!members[id]) {
+      members[id] = {
+        member_id: id,
+        name: name || ("ID: " + id),
+        attacks: 0,
+        successful_hits: 0,
+        war_hits: 0,
+        chain_hits: 0,
+        assists: 0,
+        losses: 0,
+        interruptions: 0,
+        retaliations: 0,
+        overseas_hits: 0,
+        base_respect: 0,
+        raw_respect: 0,
+        chain_bonus_hits: 0
+      };
+    }
+    return members[id];
+  }
+
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    const aFac = payoutWebCleanId_(row[aFacCol]);
+    const dFac = payoutWebCleanId_(row[dFacCol]);
+    const aId = payoutWebCleanId_(row[aIdCol]);
+    const dId = payoutWebCleanId_(row[dIdCol]);
+    const resultText = String(row[resultCol] || "");
+    const result = resultText.toLowerCase();
+    const respect = payoutWebSafeNumber_(row[respectCol]);
+    const cBonus = cBonusCol >= 0 ? (payoutWebSafeNumber_(row[cBonusCol]) || 1) : 1;
+    const baseRespect = respect / (cBonus > 1 ? cBonus : 1);
+    const retaliation = retaliationCol >= 0 ? (payoutWebSafeNumber_(row[retaliationCol]) || 1) : 1;
+    const overseas = overseasCol >= 0 ? (payoutWebSafeNumber_(row[overseasCol]) || 1) : 1;
+    const timeValue = row[tCol] instanceof Date ? row[tCol].toISOString() : String(row[tCol] || "");
+
+    if (aFac === targetFactionId && result.includes("interrupted") && aId) {
+      pendingInterrupts[aId] = true;
+    }
+
+    if (aFac !== factionId || !aId) continue;
+
+    const m = memberFor(aId, String(row[aNameCol] || ""));
+    m.attacks++;
+    snapshot.totals.attacks_logged++;
+
+    const isWarOpponent = Boolean(targetFactionId && dFac === targetFactionId);
+    const isAssist = isWarOpponent && result.includes("assist");
+    const isLoss = isWarOpponent && (
+      result.includes("lost") || result.includes("escape") || result.includes("draw") ||
+      result.includes("timeout") || result.includes("stalemate")
+    );
+    const successfulHit = respect > 0 && (
+      result.includes("hospitalized") || result.includes("attacked") ||
+      result.includes("mugged") || (!result.includes("assist") && !isLoss)
+    );
+
+    if (successfulHit) {
+      m.successful_hits++;
+      snapshot.totals.successful_hits++;
+      m.raw_respect += respect;
+      m.base_respect += baseRespect;
+      snapshot.totals.raw_respect += respect;
+      snapshot.totals.base_respect += baseRespect;
+
+      if (isWarOpponent) {
+        m.war_hits++;
+        snapshot.totals.war_hits++;
+      } else {
+        m.chain_hits++;
+        snapshot.totals.chain_hits++;
+      }
+
+      if (retaliation > 1) {
+        m.retaliations++;
+        snapshot.totals.retaliations++;
+      }
+      if (isWarOpponent && overseas > 1) {
+        m.overseas_hits++;
+        snapshot.totals.overseas_hits++;
+      }
+      if (cBonus > 1) {
+        m.chain_bonus_hits++;
+        snapshot.totals.chain_bonus_hits++;
+        snapshot.chain_bonus_hits.push({
+          time: timeValue,
+          attacker_id: aId,
+          attacker_name: m.name,
+          multiplier: cBonus,
+          raw_respect: respect,
+          base_respect: baseRespect
+        });
+      }
+    }
+
+    if (isAssist) {
+      m.assists++;
+      snapshot.totals.assists++;
+    }
+    if (isLoss) {
+      m.losses++;
+      snapshot.totals.losses++;
+    }
+    if (isWarOpponent && pendingInterrupts[dId] && successfulHit) {
+      m.interruptions++;
+      snapshot.totals.interruptions++;
+      pendingInterrupts[dId] = false;
+    }
+
+    snapshot.recent_attacks.push({
+      attack_id: attackIdCol >= 0 ? String(row[attackIdCol] || "") : "",
+      time: timeValue,
+      attacker_id: aId,
+      attacker_name: m.name,
+      defender_id: dId,
+      defender_name: dNameCol >= 0 ? String(row[dNameCol] || "") : "",
+      defender_faction_id: dFac,
+      result: resultText,
+      raw_respect: respect,
+      base_respect: baseRespect,
+      chain_bonus: cBonus,
+      retaliation: retaliation,
+      overseas: overseas
+    });
+  }
+
+  snapshot.members = Object.keys(members).map(k => members[k])
+    .sort((a, b) => {
+      if (b.war_hits !== a.war_hits) return b.war_hits - a.war_hits;
+      if (b.base_respect !== a.base_respect) return b.base_respect - a.base_respect;
+      return a.name.localeCompare(b.name);
+    });
+
+  snapshot.recent_attacks.sort((a, b) => (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0));
+  snapshot.recent_attacks = snapshot.recent_attacks.slice(0, 50);
+
+  snapshot.chain_bonus_hits.sort((a, b) => (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0));
+  snapshot.chain_bonus_hits = snapshot.chain_bonus_hits.slice(0, 250);
+
+  return snapshot;
 }
