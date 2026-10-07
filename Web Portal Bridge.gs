@@ -31,7 +31,7 @@ const PAYOUT_WEB_ALLOWED_DASHBOARD_LABELS = new Set([
 function payoutWebBridgeConfig_() {
   const props = PropertiesService.getScriptProperties();
   return {
-    secret: props.getProperty("PAYOUT_WEB_BRIDGE_SECRET") || "",
+    secret: props.getProperty("PAYOUT_WEB_BRIDGE_SECRET") || props.getProperty("ARCHIVE_API_TOKEN") || "",
     factionKey: (props.getProperty("ARCHIVE_FACTION_KEY") || "").trim().toLowerCase()
   };
 }
