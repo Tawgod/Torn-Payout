@@ -52,6 +52,13 @@ jobs:
         working-directory: .deploy/apps-script
         run: clasp push --force
 
+      - name: Create Test Web Bridge deployment
+        working-directory: .deploy/apps-script
+        run: |
+          clasp create-deployment --description "Torn Payout TEST Web Bridge"
+          echo "=== DEPLOYMENTS ==="
+          clasp list-deployments
+
   deploy-production:
     if: ${{ inputs.target == 'production' }}
     runs-on: ubuntu-latest
