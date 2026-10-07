@@ -1,58 +1,82 @@
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
-  const dbMenu = ui.createMenu('🗄️ Database Archive')
-    .addItem('Configure Railway Database', 'configureArchiveDatabase')
-    .addItem('Test Railway + Torn Connection', 'testRailwayTornConnection')
-    .addItem('Refresh War Archive Index', 'refreshWarArchiveIndex')
-    .addItem('Load Selected Prior War', 'loadSelectedArchivedWar')
-    .addItem('Load Prior War by ID', 'loadArchivedWarByIdPrompt')
-    .addItem('Clear Current Payout Snapshot (TEST)', 'clearCurrentArchiveSnapshotForTest')
-    .addSeparator()
-    .addItem('Save Current War to Database', 'archiveCurrentWarToDatabase')
-    .addItem('Publish Current Payout to Web', 'publishCurrentPayoutToWeb')
-    .addItem('Publish Selected Archived War to Web', 'publishSelectedArchivedWarToWeb')
-    .addItem('Show Public Web URL', 'showPublicPayoutWebUrl')
-    .addSeparator()
-    .addItem('Migrate Legacy Google Archives', 'migrateLegacyGoogleArchivesToDatabase')
-    .addItem('Migrate Public-Only Payout Tabs', 'migrateLegacyPublicOnlyWarsToDatabase')
-    .addSeparator()
-    .addItem('ARCHIVE TO DATABASE & RESET', 'archiveAndResetWarDatabase');
+  const props = PropertiesService.getDocumentProperties();
+  const environment = String(props.getProperty("PAYOUT_ENVIRONMENT") || "").trim().toLowerCase();
+  const isTest = environment === "test" || environment === "staging" || environment === "development";
 
-  ui.createMenu('⚔️ Faction Tools')
-    .addItem('1. Quick Refresh Dashboard Data', 'refreshDashboard')
-    .addItem('2. Update Faction Roster', 'updateRoster')
-    .addItem('3. Initialize Bounty Tracker', 'setupBountyTracker')
-    .addSubMenu(
-      ui.createMenu('🎯 Bounties · RFC v2')
-        .addItem('Configure Bounty Bot Bridge', 'configureBountyBotBridge')
-        .addItem('Scan Current War Bounties', 'triggerCurrentWarBountyScan')
-        .addItem('Check Current War Bounty Scan', 'checkCurrentWarBountyScanStatus')
-        .addSeparator()
-        .addItem('Sync Eligible RFC War Bounties [RFC v2]', 'syncEligibleWarBountiesFromRailway')
-        .addItem('RFC Payout Reconciliation', 'showWarBountyPayoutReconciliation')
-        .addSeparator()
-        .addItem('Enable Automatic RFC Bounty Sync', 'enableAutomaticRfcBountySync')
-        .addItem('Disable Automatic RFC Bounty Sync', 'disableAutomaticRfcBountySync')
-    )
+  // ==========================================
+  // CURRENT WAR WORKFLOW
+  // Ordered roughly in the sequence leadership uses it.
+  // ==========================================
+  const bountiesMenu = ui.createMenu("🎯 Bounties")
+    .addItem("Scan Current War Bounties", "triggerCurrentWarBountyScan")
+    .addItem("Check Bounty Scan Status", "checkCurrentWarBountyScanStatus")
+    .addItem("Sync Eligible War Bounties", "syncEligibleWarBountiesFromRailway")
+    .addItem("Bounty Payout Reconciliation", "showWarBountyPayoutReconciliation");
+
+  const reviewMenu = ui.createMenu("✅ Review & Payment Checks")
+    .addItem("Run Payout Auditor", "runPayoutAudit")
+    .addItem("Refresh Awards", "refreshAwards")
     .addSeparator()
-    .addItem('4. Select Official Reports', 'showOfficialReportPicker')
-    .addItem('5. Generate Payout Tab', 'buildPayoutTab')
-    .addItem('6. Calculate Payout Metrics', 'runPayoutMath')
-    .addItem('Apply Selected Payout Preset', 'applySelectedPayoutPreset')
-    .addItem('7. Generate Final Payouts', 'buildFinalPayoutTab')
-    .addItem('8. Publish Payout to Public Sheet (Legacy)', 'publishPayoutToPublic')
+    .addItem("Check Payout Reconciliation", "buildPayoutReconciliationReport");
+
+  const archiveMenu = ui.createMenu("🗄️ Archive & Web")
+    .addItem("Save Current War to Database", "archiveCurrentWarToDatabase")
+    .addItem("Publish Current Payout to Web", "publishCurrentPayoutToWeb")
+    .addItem("Show Public Web URL", "showPublicPayoutWebUrl")
     .addSeparator()
-    .addSubMenu(dbMenu)
+    .addItem("Refresh War Archive", "refreshWarArchiveIndex")
+    .addItem("Load Selected Prior War", "loadSelectedArchivedWar")
+    .addItem("Load Prior War by ID", "loadArchivedWarByIdPrompt")
+    .addItem("Publish Selected Archived War to Web", "publishSelectedArchivedWarToWeb")
     .addSeparator()
-    .addItem('9. Log War to History', 'logWarToHistory')
-    .addItem('Fetch Official Reports + RD (Manual)', 'fetchOfficialReports')
-    .addItem('Pull Raw Attack Data Only (Manual)', 'importWarData')
-    .addItem('Legacy Google Sheet Archive & Reset', 'archiveAndResetWar')
-    .addItem('🧪 Test Legacy Archive (No Reset)', 'testArchiveOnly')
-    .addItem('🧹 Clean Sweep (Reset Sheet)', 'cleanSweep')
+    .addItem("Archive to Database & Reset", "archiveAndResetWarDatabase");
+
+  const setupMenu = ui.createMenu("⚙️ Setup & Maintenance")
+    .addItem("Update Faction Roster", "updateRoster")
+    .addItem("Initialize / Repair Bounty Tracker", "setupBountyTracker")
+    .addItem("Rebuild Dashboard UI", "buildDashboard")
     .addSeparator()
-    .addItem('🏆 Refresh Awards', 'refreshAwards')
-    .addItem('🔍 Run Auto-Auditor', 'runPayoutAudit')
-    .addItem('Rebuild Dashboard UI', 'buildDashboard')
+    .addItem("Configure Railway Database", "configureArchiveDatabase")
+    .addItem("Test Railway + Torn Connection", "testRailwayTornConnection")
+    .addSeparator()
+    .addItem("Configure Bounty Bot Bridge", "configureBountyBotBridge")
+    .addItem("Enable Automatic Bounty Sync", "enableAutomaticRfcBountySync")
+    .addItem("Disable Automatic Bounty Sync", "disableAutomaticRfcBountySync");
+
+  const legacyMenu = ui.createMenu("🧰 Legacy / Manual")
+    .addItem("Publish to Legacy Public Google Sheet", "publishPayoutToPublic")
+    .addSeparator()
+    .addItem("Fetch Official Reports + RD Manually", "fetchOfficialReports")
+    .addItem("Pull Raw Attack Data Only", "importWarData")
+    .addSeparator()
+    .addItem("Log War to Legacy History Tab", "logWarToHistory")
+    .addItem("Legacy Google Sheet Archive & Reset", "archiveAndResetWar")
+    .addItem("Test Legacy Archive (No Reset)", "testArchiveOnly")
+    .addItem("Clean Sweep / Reset Sheet", "cleanSweep")
+    .addSeparator()
+    .addItem("Migrate Legacy Google Archives", "migrateLegacyGoogleArchivesToDatabase")
+    .addItem("Migrate Public-Only Payout Tabs", "migrateLegacyPublicOnlyWarsToDatabase");
+
+  if (isTest) {
+    legacyMenu
+      .addSeparator()
+      .addItem("TEST: Clear Current Payout Snapshot", "clearCurrentArchiveSnapshotForTest");
+  }
+
+  ui.createMenu("⚔️ Faction Tools")
+    .addItem("1. Refresh Current War Data", "refreshDashboard")
+    .addItem("2. Select Official Reports", "showOfficialReportPicker")
+    .addSubMenu(bountiesMenu)
+    .addSeparator()
+    .addItem("3. Generate Payout Tab", "buildPayoutTab")
+    .addItem("4. Apply Payout Preset", "applySelectedPayoutPreset")
+    .addItem("5. Calculate Payout Metrics", "runPayoutMath")
+    .addSubMenu(reviewMenu)
+    .addItem("6. Generate Final Payouts", "buildFinalPayoutTab")
+    .addSeparator()
+    .addSubMenu(archiveMenu)
+    .addSubMenu(setupMenu)
+    .addSubMenu(legacyMenu)
     .addToUi();
 }
