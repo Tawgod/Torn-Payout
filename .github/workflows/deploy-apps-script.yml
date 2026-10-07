@@ -56,7 +56,13 @@ jobs:
         working-directory: .deploy/apps-script
         run: |
           clasp update-deployment AKfycbwWMNOC3o9HA3wMoEB6L1UM7ovTqAWO2T3EPgskXRqtu8MAERiO-scIVCmO1oUTqJ9VNA --description "Torn Payout TEST Web Bridge"
-          echo "Web bridge: https://script.google.com/macros/s/AKfycbwWMNOC3o9HA3wMoEB6L1UM7ovTqAWO2T3EPgskXRqtu8MAERiO-scIVCmO1oUTqJ9VNA/exec"
+          BRIDGE_URL="https://script.google.com/macros/s/AKfycbwWMNOC3o9HA3wMoEB6L1UM7ovTqAWO2T3EPgskXRqtu8MAERiO-scIVCmO1oUTqJ9VNA/exec"
+          echo "Web bridge: $BRIDGE_URL"
+          sleep 3
+          HEALTH="$(curl -fsSL --retry 4 --retry-delay 2 "$BRIDGE_URL")"
+          echo "Health: $HEALTH"
+          echo "$HEALTH" | grep -q '"ok":true'
+          echo "$HEALTH" | grep -q '"configured":true'
 
   deploy-production:
     if: ${{ inputs.target == 'production' }}
