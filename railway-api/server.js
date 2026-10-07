@@ -456,6 +456,42 @@ app.get("/internal/torn", async (req, res) => {
 
 app.use("/api", requireAuth);
 
+app.get("/api/torn-news", requireAuth, async (req, res) => {
+  try {
+    const factionKey = asText(req.query.faction);
+    const category = asText(req.query.category) || "giveFunds";
+    const from = asInt(req.query.from);
+    const to = asInt(req.query.to);
+
+    if (!factionKey) return res.status(400).json({ error: "faction is required" });
+    if (!["giveFunds", "depositFunds"].includes(category)) {
+      return res.status(400).json({ error: "Unsupported faction news category" });
+    }
+
+    const apiKey = tornApiKeyForFaction(factionKey);
+    if (!apiKey) return res.status(503).json({ error: "Torn API key is not configured for this faction" });
+
+    const qs = new URLSearchParams({ cat: category, sort: "DESC" });
+    if (from !== null) qs.set("from", String(from));
+    if (to !== null) qs.set("to", String(to));
+
+    const url = "https://api.torn.com/v2/faction/news?" + qs.toString();
+    const response = await fetch(url, {
+      headers: {
+        Authorization: apiKey,
+        Accept: "application/json",
+        "User-Agent": "Torn-Payout-Reconciliation/1.0"
+      }
+    });
+    const text = await response.text();
+    let body;
+    try { body = JSON.parse(text); } catch (_e) { body = { error: text || "Invalid Torn API response" }; }
+    return res.status(response.status).json(body);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || "Could not load faction banking news" });
+  }
+});
+
 app.get("/api/torn", async (req, res) => {
   try {
     const factionKey = asText(req.query.faction);
