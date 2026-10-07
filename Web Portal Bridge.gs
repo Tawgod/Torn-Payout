@@ -133,6 +133,12 @@ function payoutWebDispatch_(action, payload) {
       buildFinalPayoutTab();
       return { built: true };
 
+    case "payout_reconciliation":
+      if (typeof buildPayoutReconciliationReport !== "function") {
+        throw new Error("Payout reconciliation module is not available.");
+      }
+      return buildPayoutReconciliationReport();
+
     default:
       throw new Error("Unsupported payout web action: " + action);
   }
