@@ -67,6 +67,13 @@ function asBool(v) {
   return null;
 }
 
+function factionIdForKey(factionKey) {
+  const key = String(factionKey || "").trim().toLowerCase();
+  if (key === "ironsides") return 40664;
+  if (key === "resolute") return 46442;
+  return null;
+}
+
 function tornApiKeyForFaction(factionKey) {
   const key = String(factionKey || "").trim().toLowerCase();
   if (key === "ironsides") return process.env.TORN_API_KEY_IRONSIDES || "";
@@ -473,6 +480,209 @@ app.get("/api/torn", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(502).json({ error: "Torn API proxy failed" });
+  }
+});
+
+app.get("/api/war-bounty-payouts", async (req, res) => {
+  try {
+    const factionKey = asText(req.query.faction);
+    const factionId = factionIdForKey(factionKey);
+    if (!factionId) return res.status(400).json({ error: "valid faction is required" });
+
+    const status = (asText(req.query.status) || "pending").toLowerCase();
+    if (!["pending", "exported", "failed", "blocked"].includes(status)) {
+      return res.status(400).json({ error: "unsupported payout export status" });
+    }
+    const limit = Math.min(Math.max(asInt(req.query.limit) || 100, 1), 500);
+
+    const result = await pool.query(
+      `SELECT e.id AS export_id, e.placement_id, e.request_id, e.faction_id,
+              e.status, e.payout_reference, e.payload, e.attempt_count,
+              e.last_error, e.created_at, e.updated_at, e.exported_at,
+              e.sheet_reference
+         FROM war_bounty_payout_exports e
+        WHERE e.faction_id=$1 AND e.status=$2
+        ORDER BY e.created_at ASC
+        LIMIT $3`,
+      [factionId, status, limit]
+    );
+
+    res.json({
+      faction_key: factionKey,
+      faction_id: factionId,
+      status,
+      exports: result.rows.map(row => ({
+        ...row.payload,
+        export_id: row.export_id,
+        placement_id: row.placement_id,
+        request_id: row.request_id,
+        payout_reference: row.payout_reference,
+        export_status: row.status,
+        attempt_count: row.attempt_count,
+        last_error: row.last_error,
+        queued_at: row.created_at,
+        exported_at: row.exported_at,
+        sheet_reference: row.sheet_reference
+      }))
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load War Bounty payout exports" });
+  }
+});
+
+app.post("/api/war-bounty-payouts/:exportId/ack", async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const factionKey = asText(req.body && req.body.faction_key);
+    const factionId = factionIdForKey(factionKey);
+    const exportId = asInt(req.params.exportId);
+    const sheetReference = asText(req.body && req.body.sheet_reference);
+    if (!factionId || exportId === null || !sheetReference) {
+      return res.status(400).json({ error: "faction_key, export ID, and sheet_reference are required" });
+    }
+
+    await client.query("BEGIN");
+    const found = await client.query(
+      `SELECT * FROM war_bounty_payout_exports
+        WHERE id=$1 AND faction_id=$2
+        FOR UPDATE`,
+      [exportId, factionId]
+    );
+    if (!found.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "War Bounty payout export not found" });
+    }
+
+    const row = found.rows[0];
+    if (row.status !== "exported") {
+      await client.query(
+        `UPDATE war_bounty_payout_exports
+            SET status='exported', exported_at=NOW(), updated_at=NOW(),
+                sheet_reference=$3, last_error=NULL, attempt_count=attempt_count+1
+          WHERE id=$1 AND faction_id=$2`,
+        [exportId, factionId, sheetReference]
+      );
+
+      await client.query(
+        `UPDATE war_bounty_placements
+            SET added_to_payout=TRUE,
+                payout_added_at=COALESCE(payout_added_at,NOW()),
+                payout_reference=COALESCE(payout_reference,$2)
+          WHERE id=$1`,
+        [row.placement_id, row.payout_reference]
+      );
+
+      if (row.request_id !== null) {
+        await client.query(
+          `UPDATE war_bounty_requests
+              SET payout_added_at=COALESCE(payout_added_at,NOW()),
+                  payout_reference=COALESCE(payout_reference,$2),
+                  updated_at=NOW()
+            WHERE id=$1`,
+          [row.request_id, row.payout_reference]
+        );
+      }
+
+      await client.query(
+        `INSERT INTO war_bounty_worker_events
+           (request_id,placement_id,event_type,details)
+         VALUES ($1,$2,'payout_export_acknowledged',$3::jsonb)`,
+        [
+          row.request_id,
+          row.placement_id,
+          JSON.stringify({
+            export_id: exportId,
+            payout_reference: row.payout_reference,
+            sheet_reference: sheetReference
+          })
+        ]
+      );
+    }
+
+    await client.query("COMMIT");
+    res.json({
+      ok: true,
+      export_id: exportId,
+      payout_reference: row.payout_reference,
+      status: "exported",
+      sheet_reference: row.status === "exported" ? row.sheet_reference : sheetReference,
+      already_exported: row.status === "exported"
+    });
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch (_e) {}
+    console.error(err);
+    res.status(500).json({ error: "Could not acknowledge War Bounty payout export" });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/api/war-bounty-payouts/:exportId/fail", async (req, res) => {
+  try {
+    const factionKey = asText(req.body && req.body.faction_key);
+    const factionId = factionIdForKey(factionKey);
+    const exportId = asInt(req.params.exportId);
+    const errorText = asText(req.body && req.body.error) || "Sheet export failed";
+    if (!factionId || exportId === null) {
+      return res.status(400).json({ error: "faction_key and valid export ID are required" });
+    }
+    const result = await pool.query(
+      `UPDATE war_bounty_payout_exports
+          SET status='pending', updated_at=NOW(), last_error=$3,
+              attempt_count=attempt_count+1
+        WHERE id=$1 AND faction_id=$2 AND status<>'exported'
+        RETURNING id`,
+      [exportId, factionId, errorText.slice(0, 2000)]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: "Pending payout export not found" });
+    res.json({ ok: true, export_id: exportId, status: "pending" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not record War Bounty payout export failure" });
+  }
+});
+
+app.get("/api/war-bounty-payouts-reconciliation", async (req, res) => {
+  try {
+    const factionKey = asText(req.query.faction);
+    const factionId = factionIdForKey(factionKey);
+    if (!factionId) return res.status(400).json({ error: "valid faction is required" });
+
+    const [counts, missing] = await Promise.all([
+      pool.query(
+        `SELECT status, COUNT(*)::int AS count
+           FROM war_bounty_payout_exports
+          WHERE faction_id=$1
+          GROUP BY status`,
+        [factionId]
+      ),
+      pool.query(
+        `SELECT p.id AS placement_id, p.request_id, p.placer_torn_id, p.placer_name,
+                p.target_torn_id, p.target_name, p.total_cost, p.war_id
+           FROM war_bounty_placements p
+           LEFT JOIN war_bounty_payout_exports e ON e.placement_id=p.id
+          WHERE p.faction_id=$1
+            AND p.verification_status='payout_eligible'
+            AND p.refundable_war_bounty=TRUE
+            AND e.id IS NULL
+          ORDER BY p.verified_at ASC NULLS LAST, p.id ASC
+          LIMIT 100`,
+        [factionId]
+      )
+    ]);
+
+    const summary = { pending: 0, exported: 0, failed: 0, blocked: 0 };
+    for (const row of counts.rows) summary[row.status] = Number(row.count || 0);
+    res.json({
+      faction_key: factionKey,
+      faction_id: factionId,
+      summary,
+      eligible_not_queued: missing.rows
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not reconcile War Bounty payouts" });
   }
 });
 
