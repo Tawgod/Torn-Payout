@@ -20,11 +20,11 @@ const PORTAL_SESSION_SECRET = process.env.PORTAL_SESSION_SECRET || "";
 const PORTAL_SHEET_BRIDGES = {
   ironsides: {
     url: process.env.SHEET_BRIDGE_URL_IRONSIDES || "",
-    secret: process.env.SHEET_BRIDGE_SECRET_IRONSIDES || ""
+    secret: process.env.SHEET_BRIDGE_SECRET_IRONSIDES || process.env.ARCHIVE_API_TOKEN || ""
   },
   resolute: {
     url: process.env.SHEET_BRIDGE_URL_RESOLUTE || "",
-    secret: process.env.SHEET_BRIDGE_SECRET_RESOLUTE || ""
+    secret: process.env.SHEET_BRIDGE_SECRET_RESOLUTE || process.env.ARCHIVE_API_TOKEN || ""
   }
 };
 const PORTAL_CHAIN_WATCH_UPSTREAM = {
