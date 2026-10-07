@@ -458,7 +458,8 @@ function createPortalRouter({ pool, sessionSecret, sheetBridges = {}, chainWatch
     const allowed = new Set([
       "set_dashboard_value", "set_dashboard_values", "add_push",
       "refresh_dashboard", "refresh_awards", "fetch_reports_and_rd",
-      "build_payout", "calculate_payout", "build_final_payout"
+      "build_payout", "calculate_payout", "build_final_payout",
+      "payout_reconciliation"
     ]);
     if (!allowed.has(action)) return res.status(400).json({ error: "Unsupported portal action" });
 
@@ -467,6 +468,37 @@ function createPortalRouter({ pool, sessionSecret, sheetBridges = {}, chainWatch
       return res.json({ ok: true, result });
     } catch (err) {
       return res.status(err.status || 502).json({ error: err.message || "Sheet bridge failed" });
+    }
+  });
+
+  router.get("/portal/reconcile/:faction", async (req, res) => {
+    const id = identity(req);
+    const faction = String(req.params.faction || "").toLowerCase();
+    if (!id || !accessAtLeast(id, "edit") || !factionAllowed(id, faction)) {
+      return res.status(403).send("Edit access required.");
+    }
+
+    try {
+      const result = await callSheetBridge(sheetBridges[faction], faction, "payout_reconciliation", {});
+      const rows = Array.isArray(result.rows) ? result.rows : [];
+      const tr = rows.map(r => {
+        const status = String(r[6] || "");
+        return '<tr><td>'+escapeHtml(r[1])+'</td><td>'+escapeHtml(r[0])+'</td>'+
+          '<td>$'+Math.round(Number(r[2]||0)).toLocaleString("en-US")+'</td>'+
+          '<td>$'+Math.round(Number(r[3]||0)).toLocaleString("en-US")+'</td>'+
+          '<td>$'+Math.round(Number(r[4]||0)).toLocaleString("en-US")+'</td>'+
+          '<td>'+escapeHtml(r[5])+'</td><td><b>'+escapeHtml(status)+'</b></td></tr>';
+      }).join("");
+
+      res.send(portalShell(id, '<div class="card"><p><a href="/portal">← Portal</a></p>'+
+        '<h2>Payout Reconciliation · '+escapeHtml(faction)+'</h2>'+
+        '<p class="muted">Compared Final Payout against Torn faction give-funds logs. Read-only check.</p>'+
+        '<div class="grid"><div class="card"><span class="muted">Members checked</span><h2>'+Number(result.checked||0)+'</h2></div>'+
+        '<div class="card"><span class="muted">Errors found</span><h2>'+Number(result.errors||0)+'</h2></div></div>'+
+        '<div class="scroll"><table><thead><tr><th>Name</th><th>Torn ID</th><th>Expected</th><th>Bank Log</th><th>Difference</th><th>Marked Paid</th><th>Status</th></tr></thead>'+
+        '<tbody>'+tr+'</tbody></table></div></div>'));
+    } catch (err) {
+      res.status(err.status || 502).send(portalShell(id, '<div class="card"><h2>Reconciliation unavailable</h2><p>'+escapeHtml(err.message||err)+'</p></div>'));
     }
   });
 
