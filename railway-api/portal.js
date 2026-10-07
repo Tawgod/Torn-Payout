@@ -338,9 +338,9 @@ function createPortalRouter({ pool, sessionSecret, sheetBridges = {}, chainWatch
     }
 
     const liveApiUrl = "/portal/api/live/" + encodeURIComponent(faction);
-    const body = \`
+    const body = `
       <div class="card"><p><a href="/portal">← Portal</a></p>
-        <div class="top"><div><h2 style="margin:0">Current War · \${escapeHtml(faction)}</h2>
+        <div class="top"><div><h2 style="margin:0">Current War · ${escapeHtml(faction)}</h2>
         <p class="muted">Operational dashboard only. No payout or faction-financial data is loaded here.</p></div>
         <div class="badge" id="refreshStatus">Loading…</div></div>
       </div>
@@ -348,7 +348,7 @@ function createPortalRouter({ pool, sessionSecret, sheetBridges = {}, chainWatch
       <script>
       const root = document.getElementById("liveRoot");
       const statusEl = document.getElementById("refreshStatus");
-      const liveApiUrl = \${JSON.stringify(liveApiUrl)};
+      const liveApiUrl = ${JSON.stringify(liveApiUrl)};
       const esc = v => String(v ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]));
       const num = v => Number(v || 0).toLocaleString();
       const money = v => "$" + Math.round(Number(v || 0)).toLocaleString();
@@ -406,7 +406,7 @@ function createPortalRouter({ pool, sessionSecret, sheetBridges = {}, chainWatch
       }
       refreshLive();
       setInterval(refreshLive,30000);
-      </script>\`;
+      </script>`;
     res.send(portalShell(id, body));
   });
 
