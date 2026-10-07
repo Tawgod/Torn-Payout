@@ -79,10 +79,13 @@ function payoutWebJson_(payload) {
 }
 
 function doGet(e) {
+  const cfg = payoutWebBridgeConfig_();
   return payoutWebJson_({
     ok: true,
     service: "torn-payout-test-bridge",
     read_only_health: true,
+    configured: Boolean(cfg.secret && cfg.factionKey),
+    faction_key: cfg.factionKey || "",
     timestamp: new Date().toISOString()
   });
 }
