@@ -78,6 +78,15 @@ function payoutWebJson_(payload) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+function doGet(e) {
+  return payoutWebJson_({
+    ok: true,
+    service: "torn-payout-test-bridge",
+    read_only_health: true,
+    timestamp: new Date().toISOString()
+  });
+}
+
 function doPost(e) {
   try {
     const raw = e && e.postData ? e.postData.contents : "";
