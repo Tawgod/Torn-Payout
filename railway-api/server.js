@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
@@ -83,6 +84,74 @@ function tornApiKeyForFaction(factionKey) {
   if (key === "ironsides") return process.env.TORN_API_KEY_IRONSIDES || "";
   if (key === "resolute") return process.env.TORN_API_KEY_RESOLUTE || "";
   return "";
+}
+
+function managedKeySecret() {
+  const raw = process.env.FACTION_API_KEY_ENCRYPTION_SECRET || "";
+  if (!raw) return "";
+  return crypto.createHash("sha256").update("resolute-family-faction-keys:" + raw).digest("hex");
+}
+
+async function acquireFactionApiKey(factionKey, featureCode) {
+  const factionId = factionIdForKey(factionKey);
+  const legacy = tornApiKeyForFaction(factionKey);
+  const secret = managedKeySecret();
+  if (!factionId || !secret) return { apiKey: legacy, connectionId: null };
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const policyResult = await client.query(
+      "SELECT managed,legacy_fallback FROM faction_api_policies WHERE faction_id=$1",
+      [factionId]
+    );
+    const result = await client.query(
+      `SELECT c.id,pgp_sym_decrypt(c.key_cipher,$1)::text AS api_key
+         FROM faction_api_connections c
+         JOIN faction_api_connection_features f ON f.connection_id=c.id
+        WHERE c.faction_id=$2 AND c.enabled=TRUE AND f.feature_code=$3
+        ORDER BY c.last_used_at NULLS FIRST,c.use_count ASC,c.id
+        FOR UPDATE OF c SKIP LOCKED
+        LIMIT 1`,
+      [secret, factionId, featureCode]
+    );
+    if (result.rowCount) {
+      const row = result.rows[0];
+      await client.query(
+        "UPDATE faction_api_connections SET last_used_at=NOW(),use_count=use_count+1 WHERE id=$1",
+        [row.id]
+      );
+      await client.query("COMMIT");
+      return { apiKey: row.api_key, connectionId: Number(row.id) };
+    }
+    const policy = policyResult.rows[0];
+    await client.query("COMMIT");
+    if (policy && policy.managed && !policy.legacy_fallback) {
+      return { apiKey: "", connectionId: null };
+    }
+    return { apiKey: legacy, connectionId: null };
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch (_e) {}
+    return { apiKey: legacy, connectionId: null };
+  } finally {
+    client.release();
+  }
+}
+
+async function recordFactionApiUsage(connectionId, factionId, featureCode, endpoint, success, statusCode, errorCode) {
+  if (!connectionId || !factionId) return;
+  try {
+    await pool.query(
+      `INSERT INTO faction_api_usage
+         (connection_id,faction_id,feature_code,endpoint,success,status_code,error_code)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        connectionId, factionId, featureCode, String(endpoint || "").slice(0, 250), !!success,
+        Number.isFinite(Number(statusCode)) ? Number(statusCode) : null,
+        errorCode ? String(errorCode).slice(0, 120) : null
+      ]
+    );
+  } catch (_e) {}
 }
 
 const TORN_ALLOWED_SCOPES = new Set(["torn", "faction", "user"]);
@@ -441,12 +510,16 @@ app.get("/internal/torn", async (req, res) => {
     const valid = validateTornRequest(scope, selectionsRaw);
     if (valid.error) return res.status(400).json({ error: valid.error });
 
-    const apiKey = tornApiKeyForFaction(factionKey);
-    if (!apiKey) {
-      return res.status(503).json({ error: "No Railway Torn API key configured for faction " + factionKey });
+    const pooled = await acquireFactionApiKey(factionKey, "payout_reporting");
+    if (!pooled.apiKey) {
+      return res.status(503).json({ error: "War / Payout Reporting API sharing is not enabled for faction " + factionKey });
     }
 
-    const result = await fetchTornWithKey(apiKey, scope, id, valid.selections);
+    const result = await fetchTornWithKey(pooled.apiKey, scope, id, valid.selections);
+    await recordFactionApiUsage(
+      pooled.connectionId, factionIdForKey(factionKey), "payout_reporting",
+      "/" + scope + "/" + (id || ""), result.status >= 200 && result.status < 400, result.status, null
+    );
     return res.status(result.status).json(result.body);
   } catch (err) {
     console.error(err);
@@ -468,8 +541,9 @@ app.get("/api/torn-news", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Unsupported faction news category" });
     }
 
-    const apiKey = tornApiKeyForFaction(factionKey);
-    if (!apiKey) return res.status(503).json({ error: "Torn API key is not configured for this faction" });
+    const pooled = await acquireFactionApiKey(factionKey, "banking");
+    const apiKey = pooled.apiKey;
+    if (!apiKey) return res.status(503).json({ error: "Banking API sharing is not enabled for this faction" });
 
     const qs = new URLSearchParams({ cat: category, sort: "DESC" });
     if (from !== null) qs.set("from", String(from));
@@ -486,6 +560,10 @@ app.get("/api/torn-news", requireAuth, async (req, res) => {
     const text = await response.text();
     let body;
     try { body = JSON.parse(text); } catch (_e) { body = { error: text || "Invalid Torn API response" }; }
+    await recordFactionApiUsage(
+      pooled.connectionId, factionIdForKey(factionKey), "banking",
+      "/faction/news", response.ok, response.status, null
+    );
     return res.status(response.status).json(body);
   } catch (err) {
     return res.status(500).json({ error: err.message || "Could not load faction banking news" });
@@ -504,15 +582,19 @@ app.get("/api/torn", async (req, res) => {
     const valid = validateTornRequest(scope, selectionsRaw);
     if (valid.error) return res.status(400).json({ error: valid.error });
 
-    const apiKey = tornApiKeyForFaction(factionKey);
+    const pooled = await acquireFactionApiKey(factionKey, "payout_reporting");
     let result;
 
-    if (apiKey) {
-      result = await fetchTornWithKey(apiKey, scope, id, valid.selections);
+    if (pooled.apiKey) {
+      result = await fetchTornWithKey(pooled.apiKey, scope, id, valid.selections);
+      await recordFactionApiUsage(
+        pooled.connectionId, factionIdForKey(factionKey), "payout_reporting",
+        "/" + scope + "/" + (id || ""), result.status >= 200 && result.status < 400, result.status, null
+      );
     } else {
       result = await fetchTornFromUpstream(factionKey, scope, id, valid.selections);
       if (!result) {
-        return res.status(503).json({ error: "No Railway Torn API key or upstream proxy configured for faction " + factionKey });
+        return res.status(503).json({ error: "War / Payout Reporting API sharing is not enabled for faction " + factionKey });
       }
     }
 
