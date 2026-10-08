@@ -129,15 +129,9 @@ async function acquireFactionApiKey(factionKey, featureCode) {
     if (policy && policy.managed && !policy.legacy_fallback) {
       return { apiKey: "", connectionId: null };
     }
-    if (factionId === 46442 && !["chain_watch", "banking", "payout_attacks"].includes(featureCode)) {
-      return { apiKey: "", connectionId: null };
-    }
     return { apiKey: legacy, connectionId: null };
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_e) {}
-    if (factionId === 46442 && !["chain_watch", "banking", "payout_attacks"].includes(featureCode)) {
-      return { apiKey: "", connectionId: null };
-    }
     return { apiKey: legacy, connectionId: null };
   } finally {
     client.release();
@@ -619,13 +613,6 @@ app.get("/api/torn", async (req, res) => {
         "/" + scope + "/" + (id || ""), result.status >= 200 && result.status < 400, result.status, null
       );
     } else {
-      if (String(factionKey).trim().toLowerCase() === "resolute") {
-        return res.status(503).json({
-          error: featureCode === "payout_attacks"
-            ? "Payout Sheet Attack Data API sharing is not enabled for Resolute."
-            : "War / Payout Reporting API sharing is not enabled for Resolute."
-        });
-      }
       result = await fetchTornFromUpstream(factionKey, scope, id, valid.selections);
       if (!result) {
         return res.status(503).json({ error: "War / Payout Reporting API sharing is not enabled for faction " + factionKey });
