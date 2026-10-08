@@ -129,13 +129,13 @@ async function acquireFactionApiKey(factionKey, featureCode) {
     if (policy && policy.managed && !policy.legacy_fallback) {
       return { apiKey: "", connectionId: null };
     }
-    if (factionId === 46442 && !["chain_watch", "banking"].includes(featureCode)) {
+    if (factionId === 46442 && !["chain_watch", "banking", "payout_attacks"].includes(featureCode)) {
       return { apiKey: "", connectionId: null };
     }
     return { apiKey: legacy, connectionId: null };
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_e) {}
-    if (factionId === 46442 && !["chain_watch", "banking"].includes(featureCode)) {
+    if (factionId === 46442 && !["chain_watch", "banking", "payout_attacks"].includes(featureCode)) {
       return { apiKey: "", connectionId: null };
     }
     return { apiKey: legacy, connectionId: null };
@@ -163,7 +163,7 @@ async function recordFactionApiUsage(connectionId, factionId, featureCode, endpo
 const TORN_ALLOWED_SCOPES = new Set(["torn", "faction", "user"]);
 const TORN_ALLOWED_SELECTIONS = new Set([
   "items", "rankedwarreport", "chainreport", "news", "basic",
-  "fundsnews", "profile", "rankedwars", "chains"
+  "fundsnews", "profile", "rankedwars", "chains", "attacks"
 ]);
 
 function validateTornRequest(scope, selectionsRaw) {
@@ -174,6 +174,16 @@ function validateTornRequest(scope, selectionsRaw) {
     return { error: "Unsupported Torn API selection" };
   }
   return { selections };
+}
+
+function payoutFeatureForRequest(scope, selections) {
+  if (String(scope || "").toLowerCase() === "faction" &&
+      Array.isArray(selections) &&
+      selections.length > 0 &&
+      selections.every(s => String(s).toLowerCase() === "attacks")) {
+    return "payout_attacks";
+  }
+  return "payout_reporting";
 }
 
 async function fetchTornWithKey(apiKey, scope, id, selections) {
@@ -521,14 +531,19 @@ app.get("/internal/torn", async (req, res) => {
     const valid = validateTornRequest(scope, selectionsRaw);
     if (valid.error) return res.status(400).json({ error: valid.error });
 
-    const pooled = await acquireFactionApiKey(factionKey, "payout_reporting");
+    const featureCode = payoutFeatureForRequest(scope, valid.selections);
+    const pooled = await acquireFactionApiKey(factionKey, featureCode);
     if (!pooled.apiKey) {
-      return res.status(503).json({ error: "War / Payout Reporting API sharing is not enabled for faction " + factionKey });
+      return res.status(503).json({
+        error: featureCode === "payout_attacks"
+          ? "Payout Sheet Attack Data API sharing is not enabled for faction " + factionKey
+          : "War / Payout Reporting API sharing is not enabled for faction " + factionKey
+      });
     }
 
     const result = await fetchTornWithKey(pooled.apiKey, scope, id, valid.selections);
     await recordFactionApiUsage(
-      pooled.connectionId, factionIdForKey(factionKey), "payout_reporting",
+      pooled.connectionId, factionIdForKey(factionKey), featureCode,
       "/" + scope + "/" + (id || ""), result.status >= 200 && result.status < 400, result.status, null
     );
     return res.status(result.status).json(result.body);
@@ -593,18 +608,23 @@ app.get("/api/torn", async (req, res) => {
     const valid = validateTornRequest(scope, selectionsRaw);
     if (valid.error) return res.status(400).json({ error: valid.error });
 
-    const pooled = await acquireFactionApiKey(factionKey, "payout_reporting");
+    const featureCode = payoutFeatureForRequest(scope, valid.selections);
+    const pooled = await acquireFactionApiKey(factionKey, featureCode);
     let result;
 
     if (pooled.apiKey) {
       result = await fetchTornWithKey(pooled.apiKey, scope, id, valid.selections);
       await recordFactionApiUsage(
-        pooled.connectionId, factionIdForKey(factionKey), "payout_reporting",
+        pooled.connectionId, factionIdForKey(factionKey), featureCode,
         "/" + scope + "/" + (id || ""), result.status >= 200 && result.status < 400, result.status, null
       );
     } else {
       if (String(factionKey).trim().toLowerCase() === "resolute") {
-        return res.status(503).json({ error: "War / Payout Reporting API sharing is not enabled for Resolute." });
+        return res.status(503).json({
+          error: featureCode === "payout_attacks"
+            ? "Payout Sheet Attack Data API sharing is not enabled for Resolute."
+            : "War / Payout Reporting API sharing is not enabled for Resolute."
+        });
       }
       result = await fetchTornFromUpstream(factionKey, scope, id, valid.selections);
       if (!result) {
