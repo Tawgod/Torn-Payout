@@ -102,8 +102,8 @@ async function acquireFactionApiKey(factionKey, featureCode) {
   try {
     await client.query("BEGIN");
     const policyResult = await client.query(
-      "SELECT managed,legacy_fallback FROM faction_api_policies WHERE faction_id=$1",
-      [factionId]
+      "SELECT managed,legacy_fallback FROM faction_api_feature_policies WHERE faction_id=$1 AND feature_code=$2",
+      [factionId, featureCode]
     );
     const result = await client.query(
       `SELECT c.id,pgp_sym_decrypt(c.key_cipher,$1)::text AS api_key
@@ -129,9 +129,15 @@ async function acquireFactionApiKey(factionKey, featureCode) {
     if (policy && policy.managed && !policy.legacy_fallback) {
       return { apiKey: "", connectionId: null };
     }
+    if (factionId === 46442 && !["chain_watch", "banking"].includes(featureCode)) {
+      return { apiKey: "", connectionId: null };
+    }
     return { apiKey: legacy, connectionId: null };
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_e) {}
+    if (factionId === 46442 && !["chain_watch", "banking"].includes(featureCode)) {
+      return { apiKey: "", connectionId: null };
+    }
     return { apiKey: legacy, connectionId: null };
   } finally {
     client.release();
@@ -173,9 +179,14 @@ function validateTornRequest(scope, selectionsRaw) {
 async function fetchTornWithKey(apiKey, scope, id, selections) {
   let url = "https://api.torn.com/" + encodeURIComponent(scope) + "/";
   if (id) url += encodeURIComponent(id);
-  url += "?selections=" + encodeURIComponent(selections.join(",")) + "&key=" + encodeURIComponent(apiKey);
+  url += "?selections=" + encodeURIComponent(selections.join(","));
 
-  const response = await fetch(url, { headers: { "User-Agent": "Torn-Payout-Railway/1.0" } });
+  const response = await fetch(url, {
+    headers: {
+      Authorization: "ApiKey " + apiKey,
+      "User-Agent": "Torn-Payout-Railway/1.0"
+    }
+  });
   const bodyText = await response.text();
   let body;
   try { body = JSON.parse(bodyText); } catch (_e) { body = { error: { error: bodyText || "Invalid Torn API response" } }; }
@@ -592,6 +603,9 @@ app.get("/api/torn", async (req, res) => {
         "/" + scope + "/" + (id || ""), result.status >= 200 && result.status < 400, result.status, null
       );
     } else {
+      if (String(factionKey).trim().toLowerCase() === "resolute") {
+        return res.status(503).json({ error: "War / Payout Reporting API sharing is not enabled for Resolute." });
+      }
       result = await fetchTornFromUpstream(factionKey, scope, id, valid.selections);
       if (!result) {
         return res.status(503).json({ error: "War / Payout Reporting API sharing is not enabled for faction " + factionKey });
