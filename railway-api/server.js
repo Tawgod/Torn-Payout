@@ -96,7 +96,7 @@ async function acquireFactionApiKey(factionKey, featureCode) {
   const factionId = factionIdForKey(factionKey);
   const legacy = tornApiKeyForFaction(factionKey);
   const secret = managedKeySecret();
-  if (!factionId || !secret) return { apiKey: legacy, connectionId: null };
+  if (!factionId || !secret) return { apiKey: legacy, connectionId: null, blocked: false };
 
   const client = await pool.connect();
   try {
@@ -122,17 +122,17 @@ async function acquireFactionApiKey(factionKey, featureCode) {
         [row.id]
       );
       await client.query("COMMIT");
-      return { apiKey: row.api_key, connectionId: Number(row.id) };
+      return { apiKey: row.api_key, connectionId: Number(row.id), blocked: false };
     }
     const policy = policyResult.rows[0];
     await client.query("COMMIT");
     if (policy && policy.managed && !policy.legacy_fallback) {
-      return { apiKey: "", connectionId: null };
+      return { apiKey: "", connectionId: null, blocked: true };
     }
-    return { apiKey: legacy, connectionId: null };
+    return { apiKey: legacy, connectionId: null, blocked: false };
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_e) {}
-    return { apiKey: legacy, connectionId: null };
+    return { apiKey: legacy, connectionId: null, blocked: false };
   } finally {
     client.release();
   }
@@ -527,7 +527,7 @@ app.get("/internal/torn", async (req, res) => {
 
     const featureCode = payoutFeatureForRequest(scope, valid.selections);
     const pooled = await acquireFactionApiKey(factionKey, featureCode);
-    if (!pooled.apiKey) {
+    if (pooled.blocked || !pooled.apiKey) {
       return res.status(503).json({
         error: featureCode === "payout_attacks"
           ? "Payout Sheet Attack Data API sharing is not enabled for faction " + factionKey
@@ -605,6 +605,14 @@ app.get("/api/torn", async (req, res) => {
     const featureCode = payoutFeatureForRequest(scope, valid.selections);
     const pooled = await acquireFactionApiKey(factionKey, featureCode);
     let result;
+
+    if (pooled.blocked) {
+      return res.status(503).json({
+        error: featureCode === "payout_attacks"
+          ? "Payout Sheet Attack Data API sharing is not enabled for this faction."
+          : "War / Payout Reporting API sharing is not enabled for this faction."
+      });
+    }
 
     if (pooled.apiKey) {
       result = await fetchTornWithKey(pooled.apiKey, scope, id, valid.selections);
