@@ -181,9 +181,18 @@ function payoutFeatureForRequest(scope, selections) {
 }
 
 async function fetchTornWithKey(apiKey, scope, id, selections) {
-  let url = "https://api.torn.com/" + encodeURIComponent(scope) + "/";
-  if (id) url += encodeURIComponent(id);
-  url += "?selections=" + encodeURIComponent(selections.join(","));
+  let url;
+
+  // Torn API v2 exposes completed faction chains as a dedicated endpoint.
+  // The legacy "?selections=chains" shape can omit or fail to return recent
+  // completed chains, so use the canonical v2 endpoint for this request.
+  if (scope === "faction" && !id && selections.length === 1 && selections[0] === "chains") {
+    url = "https://api.torn.com/v2/faction/chains?sort=DESC&limit=100";
+  } else {
+    url = "https://api.torn.com/" + encodeURIComponent(scope) + "/";
+    if (id) url += encodeURIComponent(id);
+    url += "?selections=" + encodeURIComponent(selections.join(","));
+  }
 
   const response = await fetch(url, {
     headers: {
