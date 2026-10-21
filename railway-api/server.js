@@ -192,6 +192,9 @@ async function fetchTornWithKey(apiKey, scope, id, selections) {
     url = "https://api.torn.com/" + encodeURIComponent(scope) + "/";
     if (id) url += encodeURIComponent(id);
     url += "?selections=" + encodeURIComponent(selections.join(","));
+    if (selections.includes("attacks")) {
+      url += "&comment=" + encodeURIComponent("Attack data");
+    }
   }
 
   const response = await fetch(url, {
