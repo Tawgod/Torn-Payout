@@ -14,3 +14,13 @@ Security: never expose or log raw API keys; honor faction separation and member 
 These requirements apply independently of which Torn project chat initiated the work. The API Management chat coordinates usage; it does not exempt other chats from following these rules.
 
 **Limit of this file:** this is repository guidance for agents/tools that read it; it does not automatically load into every new ChatGPT conversation. Keep the Torn City Projects ChatGPT Project instructions aligned with this rule.
+
+## Torn API patch-note and deprecation gate
+
+**Mandatory when working on any Torn API response or API-powered module:** check the official [Torn API patch notes](https://www.torn.com/api.html#patchNotes) and the shared [January 2027 compatibility tracker](https://github.com/Tawgod/ironsides-faction-tools/blob/main/API_COMPATIBILITY_2027.md) before changing behavior or declaring a release ready. The specific Torn-Payout checklist is [here](https://github.com/Tawgod/Torn-Payout/blob/main/API_COMPATIBILITY_2027.md).
+
+- Treat `chain: null` in v2 attack responses, removal of `faction/warfare`, new array output from `torn/itemdetails` and deprecated `torn/stats` communication fields as **BUG / VERIFY** until tested and deployed. Torn's stated effective date is January 1, 2027.
+- Test existing importers, DB mappings, dashboards and old data as well as the direct API client; preserve Chain Watch and payout correctness. Use the current OpenAPI schema for replacements, not assumptions.
+- Changes that are purely documentation have **no direct Torn API call impact**; do not alter polling, keys or deployment just to record release notes. Check API_USAGE.md if the eventual implementation changes endpoint/cadence/scopes/cache.
+- Recheck patch notes before relevant deployments. A tracked task is not an implemented fix.
+
