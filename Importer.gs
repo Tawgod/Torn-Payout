@@ -38,6 +38,22 @@ function robWarehouseAttackToRdRow_(attack) {
     );
   }
 
+  const modifierNames = [
+    "fair_fight", "war_bonus", "retaliation", "group_attack",
+    "overseas", "chain_bonus", "warlord_bonus"
+  ];
+  const modifiers = {};
+  for (const name of modifierNames) {
+    const raw = attack[name];
+    if (raw === null || raw === undefined || raw === "" || !Number.isFinite(Number(raw))) {
+      throw new Error(
+        "ROB attack " + (attack.attack_id || "unknown") +
+        " has an invalid " + name + " payout modifier."
+      );
+    }
+    modifiers[name] = Number(raw);
+  }
+
   const started = new Date(attack.started_at);
   const ended = new Date(attack.ended_at);
   if (isNaN(started.getTime()) || isNaN(ended.getTime())) {
@@ -56,13 +72,13 @@ function robWarehouseAttackToRdRow_(attack) {
     attack.defender_faction_id || "",
     attack.result || "",
     Number(attack.respect_gain || 0),
-    Number(attack.fair_fight),
-    Number(attack.war_bonus),
-    Number(attack.retaliation),
-    Number(attack.group_attack),
-    Number(attack.overseas),
-    Number(attack.chain_bonus),
-    Number(attack.warlord_bonus)
+    modifiers.fair_fight,
+    modifiers.war_bonus,
+    modifiers.retaliation,
+    modifiers.group_attack,
+    modifiers.overseas,
+    modifiers.chain_bonus,
+    modifiers.warlord_bonus
   ];
 }
 
@@ -114,7 +130,10 @@ function fetchRobPayoutRows_(configSheet, startMs, endMs) {
       throw new Error("ROB payout warehouse returned data for the wrong faction.");
     }
 
-    const attacks = Array.isArray(payload.attacks) ? payload.attacks : [];
+    if (!Array.isArray(payload.attacks)) {
+      throw new Error("ROB payout warehouse returned a malformed attacks page.");
+    }
+    const attacks = payload.attacks;
     for (const attack of attacks) {
       rows.push(robWarehouseAttackToRdRow_(attack));
     }
