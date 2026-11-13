@@ -67,9 +67,10 @@ function makeContext(props, responses) {
       warlord_bonus: 1,
       respect_loss: 0,
       chain_value: null,
-      direction: "outgoing"
+      direction: "outgoing",
+      modifiers_complete: true
     }],
-    next_cursor: { started: 1793534400, attack_id: 101 }
+    next_cursor: { started: "2026-11-01T12:00:00.123456+00:00", attack_id: 101 }
   };
   const second = {
     ok: true,
@@ -78,7 +79,8 @@ function makeContext(props, responses) {
       attack_id: 101,
       started_at: "2026-11-01T12:00:00+00:00",
       chain_bonus: 100,
-      chain_value: null
+      chain_value: null,
+      modifiers_complete: true
     }, {
       attack_id: 102,
       started_at: "2026-11-01T12:01:00+00:00",
@@ -93,7 +95,8 @@ function makeContext(props, responses) {
       respect_gain: 25,
       chain_bonus: 1,
       chain_value: 50000,
-      direction: "outgoing"
+      direction: "outgoing",
+      modifiers_complete: true
     }],
     next_cursor: null
   };
@@ -114,8 +117,32 @@ function makeContext(props, responses) {
   assert.strictEqual(calls.length, 2);
   assert.strictEqual(calls[0].options.headers.Authorization, "Bearer secret");
   assert.ok(calls[0].url.startsWith("https://chain-watch-web-production.up.railway.app/internal/payout-attacks?"));
-  assert.ok(calls[1].url.includes("cursor_started=1793534400"));
+  assert.ok(calls[1].url.includes("cursor_started=2026-11-01T12%3A00%3A00.123456%2B00%3A00"));
   assert.ok(calls[1].url.includes("cursor_id=101"));
+})();
+
+
+(function testIncompleteModifiersFailClosed() {
+  const { context } = makeContext({
+    ROB_ATTACK_WAREHOUSE_ENABLED: "true",
+    ROB_ATTACK_WAREHOUSE_URL: "https://example.invalid",
+    ROB_PAYOUT_EXPORT_SECRET: "secret"
+  }, [response(200, {
+    ok: true,
+    source: "rob_shared_attack_warehouse",
+    attacks: [{
+      attack_id: 999,
+      started_at: "2026-11-01T12:00:00+00:00",
+      chain_value: null,
+      chain_bonus: null,
+      modifiers_complete: false
+    }],
+    next_cursor: null
+  })]);
+  assert.throws(
+    () => context.loadWarDataFromRobWarehouse_(40664, 1793530000000, 1793540000000),
+    /without complete payout modifier data/
+  );
 })();
 
 (function testNonAdvancingCursorFailsClosed() {
@@ -123,7 +150,7 @@ function makeContext(props, responses) {
     ok: true,
     source: "rob_shared_attack_warehouse",
     attacks: [],
-    next_cursor: { started: 1000, attack_id: 0 }
+    next_cursor: { started: "1970-01-01T00:16:40.000Z", attack_id: 0 }
   };
   const { context } = makeContext({
     ROB_ATTACK_WAREHOUSE_ENABLED: "true",
