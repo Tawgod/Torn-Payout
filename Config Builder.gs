@@ -20,7 +20,7 @@ function buildConfigTab() {
   // Define the exact layout found in your Config.csv
   const configData = [
     ["API Key", ""],             // Cell B1
-    ["Attack Data", ""],         // Cell B2
+    ["Legacy Attack Data (unused)", ""], // Cell B2
     ["Archive Sheet ID", ""],    // Cell B3
     ["Target Faction ID", ""],   // Cell B4
     ["Official War Start", ""],  // Cell B5
