@@ -165,6 +165,8 @@ function makeContext(props, responses) {
 
 (function testImporterHasExplicitFallback() {
   const importer = fs.readFileSync("Importer.gs", "utf8");
+  assert.ok(importer.includes('if (!rawData || rawData.length === 0) return;'));
+  assert.ok(!importer.includes('if (!rawData || rawData.length <= 1) return;'));
   assert.ok(importer.includes('robAttackWarehouseEnabled_()'));
   assert.ok(importer.includes('loadWarDataFromRobWarehouse_'));
   assert.ok(importer.includes('SpreadsheetApp.openById(backendId)'));
