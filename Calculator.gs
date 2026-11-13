@@ -155,9 +155,9 @@ function runPayoutMath() {
         aId: attackerId, aFac: aFac, 
         dId: cleanId(rdData[i][dIdCol]), dFac: cleanId(rdData[i][dFacCol]), 
         result: safeStr(rdData[i][resltCol]).toLowerCase(), 
-        respect: parseFloat(rdData[i][resCol]) || 0,
+        respect: payoutRespectBreakdown_(rdData[i][resCol], cBonusCol >= 0 ? rdData[i][cBonusCol] : 1).rawRespect,
         retMult: retCol >= 0 ? (parseFloat(rdData[i][retCol]) || 1) : 1,
-        cBonus: cBonusCol >= 0 ? (parseFloat(rdData[i][cBonusCol]) || 1) : 1,
+        cBonus: payoutRespectBreakdown_(rdData[i][resCol], cBonusCol >= 0 ? rdData[i][cBonusCol] : 1).chainBonus,
         overseasMult: overseasCol >= 0 ? (parseFloat(rdData[i][overseasCol]) || 1) : 1
       });
     }
@@ -214,7 +214,8 @@ function runPayoutMath() {
         let isTrimmedForPostWar = false;
 
         if (e.respect > 0 && e.cBonus > 1) {
-          stats[e.aId].res -= (e.respect - (e.respect / e.cBonus));
+          const respectParts = payoutRespectBreakdown_(e.respect, e.cBonus);
+          stats[e.aId].res -= respectParts.bonusRespect;
           if (stats[e.aId].res < 0) stats[e.aId].res = 0;
         }
 
@@ -222,8 +223,8 @@ function runPayoutMath() {
           let inActiveChain = activeChains.some(c => e.time >= c.start && e.time <= c.end);
           if (inActiveChain && e.respect > 0) {
             stats[e.aId].ch = Math.max(0, stats[e.aId].ch - 1);
-            let remainingBaseRes = (e.cBonus > 1) ? (e.respect / e.cBonus) : e.respect;
-            stats[e.aId].res = Math.max(0, stats[e.aId].res - remainingBaseRes); 
+            const respectParts = payoutRespectBreakdown_(e.respect, e.cBonus);
+            stats[e.aId].res = Math.max(0, stats[e.aId].res - respectParts.baseRespect); 
             isTrimmedForPostWar = true; 
           }
         }
