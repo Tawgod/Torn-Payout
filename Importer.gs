@@ -10,7 +10,7 @@ function importWarData(silentMode) {
 
   if (!dashSheet || !configSheet) {
     ss.toast("Dashboard or Config sheet is missing.", "Error", 5);
-    return;
+    return false;
   }
 
   // 1. Read Time Filters from Dashboard by label so layout changes are safe.
@@ -48,6 +48,11 @@ function importWarData(silentMode) {
     eHour, eMin, eSec, 999 
   );
 
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix) || endUnix < startUnix) {
+    ss.toast("Invalid payout date/time window.", "Error", 5);
+    return false;
+  }
+
   // 2. Load the selected window from ROB's shared warehouse when explicitly
   // enabled; otherwise retain the legacy backend Sheet as a rollback path.
   let rawData;
@@ -64,13 +69,13 @@ function importWarData(silentMode) {
     } catch (e) {
       console.error("ROB attack warehouse import failed: " + e.message);
       ss.toast("ROB attack warehouse import failed. Check configuration/logs.", "Error", 8);
-      return;
+      return false;
     }
   } else {
     const backendId = configSheet.getRange(SETTINGS.backendIdCell).getValue().toString().trim();
     if (!backendId) {
       ss.toast("Missing Backend Sheet ID in Config B2!", "Error", 5);
-      return;
+      return false;
     }
 
     ss.toast("Connecting to legacy Data Warehouse Sheet...", "System", 3);
@@ -79,15 +84,15 @@ function importWarData(silentMode) {
       backendSS = SpreadsheetApp.openById(backendId);
     } catch(e) {
       ss.toast("Could not access Backend Sheet.", "Error", 5);
-      return;
+      return false;
     }
 
     const backendDataSheet = backendSS.getSheetByName("Data");
-    if (!backendDataSheet) return;
+    if (!backendDataSheet) return false;
     rawData = backendDataSheet.getDataRange().getValues();
   }
 
-  if (!rawData || rawData.length === 0) return;
+  if (!rawData || rawData.length === 0) return false;
 
   // Keep the established RD column contract regardless of source. A successful
   // header-only response is meaningful: it must clear stale RD rows below.
@@ -161,10 +166,12 @@ function importWarData(silentMode) {
     } else {
       SpreadsheetApp.getUi().alert(msg);
     }
+    return true;
     
   } else {
     // ---> THE FIX: Write dynamic headers even if empty <---
     localRdSheet.getRange(1, 1, 1, masterHeaders.length).setValues([masterHeaders]);
     ss.toast("No hits found in that time window.", "System", 5);
+    return true;
   }
 }
