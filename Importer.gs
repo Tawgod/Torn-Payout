@@ -8,15 +8,9 @@ function importWarData(silentMode) {
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
   let localRdSheet = ss.getSheetByName(SETTINGS.rdSheet);
 
-  if (!dashSheet) {
-    ss.toast("Please run 'Rebuild Dashboard' first.", "Error", 5);
-    return;
-  }
-
-  const backendId = configSheet.getRange(SETTINGS.backendIdCell).getValue().toString().trim();
-  if (!backendId) {
-    ss.toast("Missing Backend Sheet ID in Config B2!", "Error", 5);
-    return;
+  if (!dashSheet || !configSheet) {
+    ss.toast("Dashboard or Config sheet is missing.", "Error", 5);
+    return false;
   }
 
   // 1. Read Time Filters from Dashboard by label so layout changes are safe.
@@ -54,23 +48,54 @@ function importWarData(silentMode) {
     eHour, eMin, eSec, 999 
   );
 
-  // 2. Connect to Backend Warehouse
-  ss.toast("Connecting to Data Warehouse...", "System", 3);
-  let backendSS;
-  try {
-    backendSS = SpreadsheetApp.openById(backendId);
-  } catch(e) {
-    ss.toast("Could not access Backend Sheet.", "Error", 5);
-    return;
+  if (!Number.isFinite(startUnix) || !Number.isFinite(endUnix) || endUnix < startUnix) {
+    ss.toast("Invalid payout date/time window.", "Error", 5);
+    return false;
   }
 
-  const backendDataSheet = backendSS.getSheetByName("Data"); 
-  if (!backendDataSheet) return;
+  // 2. Load the selected window from ROB's shared warehouse when explicitly
+  // enabled; otherwise retain the legacy backend Sheet as a rollback path.
+  let rawData;
+  if (typeof robAttackWarehouseEnabled_ === "function" && robAttackWarehouseEnabled_()) {
+    const factionId = configSheet
+      .getRange(SETTINGS.factionIdCell || "B7")
+      .getValue()
+      .toString()
+      .replace(/,/g, "")
+      .trim();
+    ss.toast("Loading attacks from ROB shared warehouse...", "System", 3);
+    try {
+      rawData = loadWarDataFromRobWarehouse_(factionId, startUnix, endUnix);
+    } catch (e) {
+      console.error("ROB attack warehouse import failed: " + e.message);
+      ss.toast("ROB attack warehouse import failed. Check configuration/logs.", "Error", 8);
+      return false;
+    }
+  } else {
+    const backendId = configSheet.getRange(SETTINGS.backendIdCell).getValue().toString().trim();
+    if (!backendId) {
+      ss.toast("Missing Backend Sheet ID in Config B2!", "Error", 5);
+      return false;
+    }
 
-  const rawData = backendDataSheet.getDataRange().getValues();
-  if (rawData.length <= 1) return;
+    ss.toast("Connecting to legacy Data Warehouse Sheet...", "System", 3);
+    let backendSS;
+    try {
+      backendSS = SpreadsheetApp.openById(backendId);
+    } catch(e) {
+      ss.toast("Could not access Backend Sheet.", "Error", 5);
+      return false;
+    }
 
-  // ---> THE FIX: Dynamically grab the new API v2 headers <---
+    const backendDataSheet = backendSS.getSheetByName("Data");
+    if (!backendDataSheet) return false;
+    rawData = backendDataSheet.getDataRange().getValues();
+  }
+
+  if (!rawData || rawData.length === 0) return false;
+
+  // Keep the established RD column contract regardless of source. A successful
+  // header-only response is meaningful: it must clear stale RD rows below.
   const masterHeaders = rawData[0];
 
   // 3. Filter the Data (With Duplicate Shield)
@@ -141,10 +166,12 @@ function importWarData(silentMode) {
     } else {
       SpreadsheetApp.getUi().alert(msg);
     }
+    return true;
     
   } else {
     // ---> THE FIX: Write dynamic headers even if empty <---
     localRdSheet.getRange(1, 1, 1, masterHeaders.length).setValues([masterHeaders]);
     ss.toast("No hits found in that time window.", "System", 5);
+    return true;
   }
 }

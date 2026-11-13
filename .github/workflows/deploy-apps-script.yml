@@ -31,6 +31,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Run ROB warehouse importer contract tests
+        run: node tests/test_rob_attack_warehouse.js
+
       - name: Install clasp
         run: npm install -g @google/clasp
 
@@ -82,6 +85,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Run ROB warehouse importer contract tests
+        run: node tests/test_rob_attack_warehouse.js
 
       - name: Install clasp
         run: npm install -g @google/clasp
