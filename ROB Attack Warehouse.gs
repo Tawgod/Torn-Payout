@@ -79,9 +79,15 @@ function loadWarDataFromRobWarehouse_(factionId, startUnixMs, endUnixMs) {
   const seen = new Set();
   let cursorStarted = new Date(startSec * 1000).toISOString();
   let cursorId = 0;
+  const seenCursors = new Set();
   let pages = 0;
 
   while (pages < 100) {
+    const cursorKey = cursorStarted + "|" + String(cursorId);
+    if (seenCursors.has(cursorKey)) {
+      throw new Error("ROB attack warehouse pagination cursor repeated.");
+    }
+    seenCursors.add(cursorKey);
     pages++;
     const query = [
       "faction_id=" + encodeURIComponent(faction),
@@ -120,18 +126,17 @@ function loadWarDataFromRobWarehouse_(factionId, startUnixMs, endUnixMs) {
 
     if (!body.next_cursor) return rows;
     const nextStarted = String(body.next_cursor.started || "").trim();
-    const nextStartedMs = Date.parse(nextStarted);
-    const cursorStartedMs = Date.parse(cursorStarted);
     const nextId = Number(body.next_cursor.attack_id);
-    if (!nextStarted || !Number.isFinite(nextStartedMs) || !Number.isFinite(nextId)) {
+    if (!nextStarted || !Number.isFinite(Date.parse(nextStarted)) || !Number.isFinite(nextId)) {
       throw new Error("ROB attack warehouse returned an invalid pagination cursor.");
     }
-    if (
-      nextStartedMs < cursorStartedMs ||
-      (nextStartedMs === cursorStartedMs && nextId <= cursorId)
-    ) {
+    const nextKey = nextStarted + "|" + String(nextId);
+    if (nextKey === cursorKey || seenCursors.has(nextKey)) {
       throw new Error("ROB attack warehouse pagination cursor did not advance.");
     }
+    // Do not compare Date.parse values for ordering here: Apps Script truncates
+    // sub-millisecond precision. The ROB endpoint validates cursor ordering;
+    // the client only detects repeated/cyclic cursor pairs.
     cursorStarted = nextStarted;
     cursorId = nextId;
   }
