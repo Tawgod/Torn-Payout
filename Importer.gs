@@ -149,6 +149,10 @@ function importWarData() {
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
   let localRdSheet = ss.getSheetByName(SETTINGS.rdSheet);
 
+  if (!configSheet) {
+    ss.toast("Missing Config sheet.", "Error", 5);
+    return;
+  }
   if (!dashSheet) {
     ss.toast("Please run 'Rebuild Dashboard' first.", "Error", 5);
     return;
