@@ -55,7 +55,13 @@ function fetchOfficialReports() {
   // Refresh RD first so official chain respect can be cleaned exactly once
   // against the current selected payout window, including on a fresh sheet.
   if (typeof importWarData === "function") {
-    importWarData(true);
+    const importSucceeded = importWarData(true);
+    if (importSucceeded === false) {
+      SpreadsheetApp.getUi().alert(
+        "Official report refresh stopped because the raw attack import failed. Existing RD data was not used."
+      );
+      return;
+    }
   }
   
   // --- CACHE VALUATION ---
