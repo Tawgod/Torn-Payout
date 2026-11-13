@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
 const { createPortalRouter } = require("./portal");
+const { fetchRobWarehousePage } = require("./robWarehouseProxy");
 
 const app = express();
 app.use(express.json({ limit: "8mb" }));
@@ -16,6 +17,8 @@ const pool = new Pool({
 const API_TOKEN = process.env.ARCHIVE_API_TOKEN || "";
 const TORN_PROXY_TOKEN = process.env.TORN_PROXY_TOKEN || "";
 const TORN_PROXY_UPSTREAM_URL = (process.env.TORN_PROXY_UPSTREAM_URL || "").replace(/\/+$/, "");
+const ROB_PAYOUT_EXPORT_URL = (process.env.ROB_PAYOUT_EXPORT_URL || "").replace(/\/+$/, "");
+const ROB_PAYOUT_EXPORT_SECRET = process.env.ROB_PAYOUT_EXPORT_SECRET || "";
 const PORT = Number(process.env.PORT || 3000);
 const PORTAL_SESSION_SECRET = process.env.PORTAL_SESSION_SECRET || "";
 const PORTAL_SHEET_BRIDGES = {
@@ -560,6 +563,20 @@ app.get("/internal/torn", async (req, res) => {
 });
 
 app.use("/api", requireAuth);
+
+app.get("/api/rob-attack-warehouse", async (req, res) => {
+  const factionKey = asText(req.query.faction);
+  const factionId = factionIdForKey(factionKey);
+  if (!factionId) return res.status(400).json({ error: "Unsupported faction" });
+
+  const result = await fetchRobWarehousePage({
+    baseUrl: ROB_PAYOUT_EXPORT_URL,
+    secret: ROB_PAYOUT_EXPORT_SECRET,
+    factionId,
+    query: req.query
+  });
+  return res.status(result.status).json(result.body);
+});
 
 app.get("/api/torn-news", requireAuth, async (req, res) => {
   try {
