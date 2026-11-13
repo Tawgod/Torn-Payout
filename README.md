@@ -7,8 +7,9 @@ The payout attack importer now reads the Resolute Family ROB attack warehouse in
 Configure these **Apps Script Script Properties** before deploying the importer:
 
 - `ROB_PAYOUT_EXPORT_SECRET` — dedicated bearer secret shared with the ROB web service.
-- `ROB_PAYOUT_EXPORT_URL` — optional override. If omitted, the importer uses the permanent direct Railway endpoint:
-  `https://chain-watch-web-production.up.railway.app/internal/payout-attacks`
+
+The importer is intentionally pinned to the permanent direct Railway endpoint:
+`https://chain-watch-web-production.up.railway.app/internal/payout-attacks`
 
 The secret must not be stored in spreadsheet cells, source code, or URLs.
 
