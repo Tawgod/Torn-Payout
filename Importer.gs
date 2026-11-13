@@ -4,10 +4,8 @@
 function robPayoutExportConfig_(configSheet) {
   const properties = PropertiesService.getScriptProperties();
   const secret = String(properties.getProperty("ROB_PAYOUT_EXPORT_SECRET") || "").trim();
-  const baseUrl = String(
-    properties.getProperty("ROB_PAYOUT_EXPORT_URL") ||
-    "https://chain-watch-web-production.up.railway.app/internal/payout-attacks"
-  ).trim().replace(/\/+$/, "");
+  const baseUrl =
+    "https://chain-watch-web-production.up.railway.app/internal/payout-attacks";
 
   const factionCell = (typeof SETTINGS !== "undefined" && SETTINGS.factionIdCell)
     ? SETTINGS.factionIdCell : "B7";
@@ -21,9 +19,6 @@ function robPayoutExportConfig_(configSheet) {
     throw new Error(
       "Missing ROB_PAYOUT_EXPORT_SECRET in Apps Script Script Properties."
     );
-  }
-  if (!/^https:\/\//i.test(baseUrl)) {
-    throw new Error("ROB_PAYOUT_EXPORT_URL must be an HTTPS URL.");
   }
   return { baseUrl: baseUrl, secret: secret, factionId: factionId };
 }
