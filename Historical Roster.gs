@@ -1,5 +1,3 @@
-const url = `https://api.torn.com/faction/?selections=basic&key=${API_KEY}`;
-
 function updateHistoricalRoster() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName("Historical Roster");
@@ -16,17 +14,22 @@ function updateHistoricalRoster() {
     sheet.setFrozenRows(1);
   }
 
-  // 2. Fetch current faction members from Torn API
-  const url = `https://api.torn.com/faction/?selections=basic&key=${API_KEY}`;
+  // 2. Fetch current faction members using the same secured Script Property.
+  const url = "https://api.torn.com/faction/?selections=basic&comment=" +
+              encodeURIComponent("Payout Roster");
   let response;
   try {
-    response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    response = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      headers: { Authorization: "ApiKey " + rawDataApiKey_() }
+    });
   } catch(e) {
-    return; // Fail silently if Torn API is down
+    console.error("Historical roster refresh failed: " + e.message);
+    return;
   }
 
   const json = JSON.parse(response.getContentText());
-  if (json.error || !json.members) return;
+  if (response.getResponseCode() >= 400 || json.error || !json.members) return;
 
   const currentMembers = json.members;
   const currentMemberIds = Object.keys(currentMembers);

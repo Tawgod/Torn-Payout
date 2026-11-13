@@ -1,11 +1,66 @@
-const API_KEY = "API KEY HERE"; 
+function rawDataApiKey_() {
+  const key = String(PropertiesService.getScriptProperties().getProperty("TORN_API_KEY") || "").trim();
+  if (!key) throw new Error("Missing TORN_API_KEY in Apps Script Script Properties.");
+  return key;
+}
+
+function fetchRawDataAttacksPage_(toUnix) {
+  let url = "https://api.torn.com/v2/faction/attacks?limit=100&sort=DESC&comment=" +
+            encodeURIComponent("Payout Raw Data");
+  if (toUnix !== "" && toUnix !== null && toUnix !== undefined) {
+    url += "&to=" + encodeURIComponent(String(toUnix));
+  }
+  const response = UrlFetchApp.fetch(url, {
+    muteHttpExceptions: true,
+    headers: { Authorization: "ApiKey " + rawDataApiKey_() }
+  });
+  const status = response.getResponseCode();
+  let json;
+  try {
+    json = JSON.parse(response.getContentText());
+  } catch (_e) {
+    throw new Error("Torn API returned invalid JSON while loading payout raw data.");
+  }
+  if (status >= 400 || json.error) {
+    const detail = json && json.error ? JSON.stringify(json.error) : ("HTTP " + status);
+    throw new Error("Torn API raw-data request failed: " + detail);
+  }
+  return json;
+}
+
+function rawAttackToWarehouseRow_(atk) {
+  const modifiers = (atk && atk.modifiers) || {};
+  // IMPORTANT: payout Chain Bonus is the respect multiplier in modifiers.chain.
+  // The top-level attack.chain value is a chain counter and may be null starting
+  // Jan 1, 2027; it is intentionally not used for payout bonus calculations.
+  return [
+    atk.id || atk.code || "",
+    new Date(Number(atk.started || 0) * 1000),
+    new Date(Number(atk.ended || 0) * 1000),
+    atk.attacker?.id || "",
+    atk.attacker?.name || "Unknown/Stealthed",
+    atk.attacker?.faction?.id || "",
+    atk.defender?.id || "",
+    atk.defender?.name || "Unknown/Stealthed",
+    atk.defender?.faction?.id || "",
+    atk.result || "",
+    Number(atk.respect_gain || 0),
+    Number(modifiers.fair_fight || 1),
+    Number(modifiers.war || 1),
+    Number(modifiers.retaliation || 1),
+    Number(modifiers.group || 1),
+    Number(modifiers.overseas || 1),
+    Number(modifiers.chain || 1),
+    Number(modifiers.warlord || 0),
+    Number(atk.respect_loss || 0)
+  ];
+}
 
 function runBackendTracker() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Data");
   if (!sheet) return;
 
-  // 1. Initialize Headers if empty
   const lastRow = sheet.getLastRow();
   if (lastRow === 0) {
     const headers = [
@@ -20,7 +75,6 @@ function runBackendTracker() {
     sheet.setFrozenRows(1);
   }
 
-  // 2. Setup Memory to catch overlaps
   const existingData = sheet.getRange("A:A").getValues();
   const existingIds = new Set();
   for (let i = 1; i < existingData.length; i++) {
@@ -32,73 +86,48 @@ function runBackendTracker() {
   let safetyCounter = 0;
   let searchToUnix = "";
 
-  // 3. THE PAGINATION LOOP (Walks Backwards)
-  while (keepSearching && safetyCounter < 15) { 
+  while (keepSearching && safetyCounter < 15) {
     safetyCounter++;
-    
-    let url = `https://api.torn.com/v2/faction/attacks?key=${API_KEY}`;
-    if (searchToUnix !== "") {
-      url += `&to=${searchToUnix}`;
+
+    let json;
+    try {
+      json = fetchRawDataAttacksPage_(searchToUnix);
+    } catch (e) {
+      console.error("Payout raw-data sync failed: " + e.message);
+      break;
     }
 
-    let response;
-    try {
-      response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    } catch(e) { break; } 
-
-    const json = JSON.parse(response.getContentText());
-    if (json.error || !json.attacks) break;
-
-    const attacks = json.attacks;
-    if (!attacks || attacks.length === 0) break; 
+    const attacks = Array.isArray(json.attacks) ? json.attacks : [];
+    if (attacks.length === 0) break;
 
     let oldestTimestampInBatch = Infinity;
     let overlapFound = false;
 
-    for (let atk of attacks) {
-      let attackId = atk.id || atk.code;
+    for (const atk of attacks) {
+      const attackId = atk.id || atk.code;
+      if (!attackId) continue;
 
-      if (atk.started < oldestTimestampInBatch) {
-        oldestTimestampInBatch = atk.started;
-      }
+      const started = Number(atk.started || 0);
+      if (started > 0 && started < oldestTimestampInBatch) oldestTimestampInBatch = started;
 
       if (existingIds.has(attackId.toString())) {
         overlapFound = true;
-        continue; 
+        continue;
       }
 
-      let modifiers = atk.modifiers || {};
-      
-      newRows.push([
-        attackId,
-        new Date(atk.started * 1000),
-        new Date(atk.ended * 1000),
-        atk.attacker?.id || "", 
-        atk.attacker?.name || "Unknown/Stealthed", 
-        atk.attacker?.faction?.id || "",
-        atk.defender?.id || "", 
-        atk.defender?.name || "Unknown/Stealthed", 
-        atk.defender?.faction?.id || "",
-        atk.result || "", 
-        atk.respect_gain || 0,
-        modifiers.fair_fight || 1, modifiers.war || 1, modifiers.retaliation || 1,
-        modifiers.group || 1, modifiers.overseas || 1, modifiers.chain || 1, modifiers.warlord || 0,
-        atk.respect_loss || 0
-      ]);
-      
-      existingIds.add(attackId.toString()); 
+      newRows.push(rawAttackToWarehouseRow_(atk));
+      existingIds.add(attackId.toString());
     }
 
-    if (overlapFound || attacks.length < 100) {
+    if (overlapFound || attacks.length < 100 || !Number.isFinite(oldestTimestampInBatch)) {
       keepSearching = false;
     } else {
       searchToUnix = oldestTimestampInBatch;
     }
   }
 
-  // 4. Sort chronologically and append to the BOTTOM of the sheet
   if (newRows.length > 0) {
-    newRows.sort((a, b) => a[2] - b[2]); 
+    newRows.sort((a, b) => a[2] - b[2]);
     sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
   }
 }
