@@ -430,9 +430,13 @@ function buildWarLiveSnapshot_() {
     const dId = payoutWebCleanId_(row[dIdCol]);
     const resultText = String(row[resultCol] || "");
     const result = resultText.toLowerCase();
-    const respect = payoutWebSafeNumber_(row[respectCol]);
-    const cBonus = cBonusCol >= 0 ? (payoutWebSafeNumber_(row[cBonusCol]) || 1) : 1;
-    const baseRespect = respect / (cBonus > 1 ? cBonus : 1);
+    const respectParts = payoutRespectBreakdown_(
+      row[respectCol],
+      cBonusCol >= 0 ? row[cBonusCol] : 1
+    );
+    const respect = respectParts.rawRespect;
+    const cBonus = respectParts.chainBonus;
+    const baseRespect = respectParts.baseRespect;
     const retaliation = retaliationCol >= 0 ? (payoutWebSafeNumber_(row[retaliationCol]) || 1) : 1;
     const overseas = overseasCol >= 0 ? (payoutWebSafeNumber_(row[overseasCol]) || 1) : 1;
     const timeValue = row[tCol] instanceof Date ? row[tCol].toISOString() : String(row[tCol] || "");
