@@ -26,7 +26,8 @@ function buildConfigTab() {
     ["Official War Start", ""],  // Cell B5
     ["Internal War ID", ""],     // Cell B6
     ["Faction ID", ""],          // Cell B7
-    ["Public sheet ID", ""]      // Cell B8
+    ["Public sheet ID", ""],     // Cell B8
+    ["ROB Attack Warehouse", "OFF"] // Cell B9; non-secret feature toggle
   ];
   
   // Inject labels and values

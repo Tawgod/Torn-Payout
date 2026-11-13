@@ -4,7 +4,7 @@ const vm = require("vm");
 
 const source = fs.readFileSync("ROB Attack Warehouse.gs", "utf8");
 
-function makeContext(props, responses, factionKey = "ironsides") {
+function makeContext(props, responses, factionKey = "ironsides", configToggle = "") {
   const calls = [];
   const queue = responses.slice();
   const context = {
@@ -12,6 +12,16 @@ function makeContext(props, responses, factionKey = "ironsides") {
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: (name) => Object.prototype.hasOwnProperty.call(props, name) ? props[name] : null
+      })
+    },
+    SETTINGS: { configSheet: "Config", robWarehouseEnabledCell: "B9" },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ({
+        getSheetByName: (name) => name === "Config" ? {
+          getRange: (a1) => ({
+            getDisplayValue: () => a1 === "B9" ? configToggle : ""
+          })
+        } : null
       })
     },
     getArchiveDatabaseConfig_: () => ({
@@ -31,6 +41,21 @@ function makeContext(props, responses, factionKey = "ironsides") {
   vm.runInContext(source, context);
   return { context, calls };
 }
+
+(function testConfigToggleCanEnableWithoutSecretProperty() {
+  const { context } = makeContext({}, [], "ironsides", "ON");
+  assert.strictEqual(context.robAttackWarehouseEnabled_(), true);
+})();
+
+(function testScriptPropertyExplicitFalseOverridesConfig() {
+  const { context } = makeContext({ ROB_ATTACK_WAREHOUSE_ENABLED: "false" }, [], "ironsides", "ON");
+  assert.strictEqual(context.robAttackWarehouseEnabled_(), false);
+})();
+
+(function testBlankConfigDefaultsOff() {
+  const { context } = makeContext({}, [], "ironsides", "");
+  assert.strictEqual(context.robAttackWarehouseEnabled_(), false);
+})();
 
 (function testDisabledSourceDoesNotCallRailway() {
   const { context, calls } = makeContext({ ROB_ATTACK_WAREHOUSE_ENABLED: "false" }, []);

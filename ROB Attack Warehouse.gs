@@ -9,8 +9,22 @@ const ROB_ATTACK_WAREHOUSE_HEADERS = [
 
 function robAttackWarehouseEnabled_() {
   const props = PropertiesService.getScriptProperties();
-  return String(props.getProperty("ROB_ATTACK_WAREHOUSE_ENABLED") || "")
-    .trim().toLowerCase() === "true";
+  const override = String(props.getProperty("ROB_ATTACK_WAREHOUSE_ENABLED") || "")
+    .trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(override)) return true;
+  if (["false", "0", "no", "off"].includes(override)) return false;
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const config = ss.getSheetByName(SETTINGS.configSheet || "Config");
+    if (!config) return false;
+    const value = String(
+      config.getRange(SETTINGS.robWarehouseEnabledCell || "B9").getDisplayValue() || ""
+    ).trim().toLowerCase();
+    return ["true", "1", "yes", "on", "enabled"].includes(value);
+  } catch (_e) {
+    return false;
+  }
 }
 
 function robFactionIdForArchiveKey_(factionKey) {
