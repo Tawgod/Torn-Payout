@@ -51,6 +51,12 @@ function fetchOfficialReports() {
     SpreadsheetApp.getUi().alert("Please enter a War ID or a Chain ID in the Official Reports box.");
     return;
   }
+
+  // Refresh RD first so official chain respect can be cleaned exactly once
+  // against the current selected payout window, including on a fresh sheet.
+  if (typeof importWarData === "function") {
+    importWarData(true);
+  }
   
   // --- CACHE VALUATION ---
   let itemValueMap = {};
@@ -388,7 +394,6 @@ function fetchOfficialReports() {
   setVal("total attacks logged", finalChainHits);
   setVal("total respect generated", finalChainRespect);
   
-  if (typeof importWarData === "function") { importWarData(true); }
   if (typeof refreshDashboard === "function") { refreshDashboard(); }
   SpreadsheetApp.getUi().alert("✅ Official Reports Fetched, Raw Attack Data Pulled & Dashboard Refreshed!");
 }
