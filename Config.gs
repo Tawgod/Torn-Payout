@@ -5,7 +5,9 @@ const SETTINGS = {
   archiveIdCell: "B3",        
   targetFactionCell: "B4",    
   warStartCell: "B5",         
-  warIdCell: "B6",            
+  warIdCell: "B6",
+  factionIdCell: "B7",
+  robWarehouseEnabledCell: "B9",
   
   // NEW: Tell the script where your new dropdowns live on the Dashboard
   dashOutcomeCell: "C10", 
