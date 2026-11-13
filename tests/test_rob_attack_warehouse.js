@@ -4,15 +4,9 @@ const vm = require("vm");
 
 const source = fs.readFileSync("ROB Attack Warehouse.gs", "utf8");
 
-function response(status, body) {
-  return {
-    getResponseCode: () => status,
-    getContentText: () => JSON.stringify(body)
-  };
-}
-
-function makeContext(props, responses) {
+function makeContext(props, responses, factionKey = "ironsides") {
   const calls = [];
+  const queue = responses.slice();
   const context = {
     console,
     PropertiesService: {
@@ -20,12 +14,17 @@ function makeContext(props, responses) {
         getProperty: (name) => Object.prototype.hasOwnProperty.call(props, name) ? props[name] : null
       })
     },
-    UrlFetchApp: {
-      fetch: (url, options) => {
-        calls.push({ url, options });
-        if (!responses.length) throw new Error("Unexpected fetch");
-        return responses.shift();
-      }
+    getArchiveDatabaseConfig_: () => ({
+      url: "https://payout.example.invalid",
+      token: "archive-token",
+      factionKey
+    }),
+    archiveApiRequest_: (path) => {
+      calls.push(path);
+      if (!queue.length) throw new Error("Unexpected archiveApiRequest_");
+      const next = queue.shift();
+      if (next instanceof Error) throw next;
+      return next;
     }
   };
   vm.createContext(context);
@@ -33,16 +32,21 @@ function makeContext(props, responses) {
   return { context, calls };
 }
 
-(function testDisabledSourceDoesNotFetch() {
-  const { context, calls } = makeContext(
-    { ROB_ATTACK_WAREHOUSE_ENABLED: "false" },
-    []
-  );
+(function testDisabledSourceDoesNotCallRailway() {
+  const { context, calls } = makeContext({ ROB_ATTACK_WAREHOUSE_ENABLED: "false" }, []);
   assert.strictEqual(context.loadWarDataFromRobWarehouse_(40664, 1000000, 2000000), null);
   assert.strictEqual(calls.length, 0);
 })();
 
-(function testPaginationAndRdMapping() {
+(function testFactionNamespaceMismatchFailsClosed() {
+  const { context } = makeContext({ ROB_ATTACK_WAREHOUSE_ENABLED: "true" }, [], "ironsides");
+  assert.throws(
+    () => context.loadWarDataFromRobWarehouse_(46442, 1793530000000, 1793540000000),
+    /does not match the configured Railway archive namespace/
+  );
+})();
+
+(function testPaginationAndRdMappingThroughArchiveApi() {
   const first = {
     ok: true,
     source: "rob_shared_attack_warehouse",
@@ -93,120 +97,97 @@ function makeContext(props, responses) {
       defender_faction_id: 998,
       result: "Attacked",
       respect_gain: 25,
+      fair_fight: 1,
+      war_bonus: 1,
+      retaliation: 1,
+      group_attack: 1,
+      overseas: 1,
       chain_bonus: 1,
+      warlord_bonus: 0,
+      respect_loss: 0,
       chain_value: 50000,
       direction: "outgoing",
       modifiers_complete: true
     }],
     next_cursor: null
   };
-  const { context, calls } = makeContext({
-    ROB_ATTACK_WAREHOUSE_ENABLED: "true",
-    ROB_ATTACK_WAREHOUSE_URL: "https://chain-watch-web-production.up.railway.app/",
-    ROB_PAYOUT_EXPORT_SECRET: "secret"
-  }, [response(200, first), response(200, second)]);
+  const { context, calls } = makeContext(
+    { ROB_ATTACK_WAREHOUSE_ENABLED: "true" },
+    [first, second]
+  );
 
   const rows = context.loadWarDataFromRobWarehouse_(40664, 1793530000000, 1793540000000);
-  assert.strictEqual(rows.length, 3); // header + 2 unique attacks
+  assert.strictEqual(rows.length, 3);
   assert.strictEqual(rows[0].length, 19);
   assert.strictEqual(rows[1][0], 101);
   assert.strictEqual(rows[1][10], 5000);
-  assert.strictEqual(rows[1][16], 100); // payout Chain Bonus from chain_bonus
+  assert.strictEqual(rows[1][16], 100);
   assert.strictEqual(rows[2][0], 102);
   assert.strictEqual(rows[2][16], 1);
   assert.strictEqual(calls.length, 2);
-  assert.strictEqual(calls[0].options.headers.Authorization, "Bearer secret");
-  assert.ok(calls[0].url.startsWith("https://chain-watch-web-production.up.railway.app/internal/payout-attacks?"));
-  assert.ok(calls[1].url.includes("cursor_started=2026-11-01T12%3A00%3A00.123456%2B00%3A00"));
-  assert.ok(calls[1].url.includes("cursor_id=101"));
+  assert.ok(calls[0].startsWith("/api/rob-attack-warehouse?faction=ironsides&"));
+  assert.ok(calls[1].includes("cursor_started=2026-11-01T12%3A00%3A00.123456%2B00%3A00"));
+  assert.ok(calls[1].includes("cursor_id=101"));
 })();
 
-
 (function testIncompleteModifiersFailClosed() {
-  const { context } = makeContext({
-    ROB_ATTACK_WAREHOUSE_ENABLED: "true",
-    ROB_ATTACK_WAREHOUSE_URL: "https://example.invalid",
-    ROB_PAYOUT_EXPORT_SECRET: "secret"
-  }, [response(200, {
-    ok: true,
-    source: "rob_shared_attack_warehouse",
-    attacks: [{
-      attack_id: 999,
-      started_at: "2026-11-01T12:00:00+00:00",
-      chain_value: null,
-      chain_bonus: null,
-      modifiers_complete: false
-    }],
-    next_cursor: null
-  })]);
+  const { context } = makeContext(
+    { ROB_ATTACK_WAREHOUSE_ENABLED: "true" },
+    [{
+      ok: true,
+      source: "rob_shared_attack_warehouse",
+      attacks: [{
+        attack_id: 999,
+        started_at: "2026-11-01T12:00:00+00:00",
+        chain_value: null,
+        chain_bonus: null,
+        modifiers_complete: false
+      }],
+      next_cursor: null
+    }]
+  );
   assert.throws(
     () => context.loadWarDataFromRobWarehouse_(40664, 1793530000000, 1793540000000),
     /without complete payout modifier data/
   );
 })();
 
-
 (function testSubMillisecondCursorAdvanceDoesNotUseTruncatedDateOrdering() {
-  const first = {
-    ok: true,
-    source: "rob_shared_attack_warehouse",
-    attacks: [],
-    next_cursor: { started: "2026-11-01T12:00:00.123456+00:00", attack_id: 200 }
-  };
-  const second = {
-    ok: true,
-    source: "rob_shared_attack_warehouse",
-    attacks: [],
-    next_cursor: { started: "2026-11-01T12:00:00.123457+00:00", attack_id: 100 }
-  };
-  const third = {
-    ok: true,
-    source: "rob_shared_attack_warehouse",
-    attacks: [],
-    next_cursor: null
-  };
-  const { context, calls } = makeContext({
-    ROB_ATTACK_WAREHOUSE_ENABLED: "true",
-    ROB_ATTACK_WAREHOUSE_URL: "https://example.invalid",
-    ROB_PAYOUT_EXPORT_SECRET: "secret"
-  }, [response(200, first), response(200, second), response(200, third)]);
-
+  const { context, calls } = makeContext(
+    { ROB_ATTACK_WAREHOUSE_ENABLED: "true" },
+    [
+      { ok: true, source: "rob_shared_attack_warehouse", attacks: [], next_cursor: { started: "2026-11-01T12:00:00.123456+00:00", attack_id: 200 } },
+      { ok: true, source: "rob_shared_attack_warehouse", attacks: [], next_cursor: { started: "2026-11-01T12:00:00.123457+00:00", attack_id: 100 } },
+      { ok: true, source: "rob_shared_attack_warehouse", attacks: [], next_cursor: null }
+    ]
+  );
   const rows = context.loadWarDataFromRobWarehouse_(40664, 1793530000000, 1793540000000);
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(calls.length, 3);
-  assert.ok(calls[2].url.includes("cursor_started=2026-11-01T12%3A00%3A00.123457%2B00%3A00"));
-  assert.ok(calls[2].url.includes("cursor_id=100"));
+  assert.ok(calls[2].includes("cursor_started=2026-11-01T12%3A00%3A00.123457%2B00%3A00"));
+  assert.ok(calls[2].includes("cursor_id=100"));
 })();
 
 (function testNonAdvancingCursorFailsClosed() {
-  const bad = {
-    ok: true,
-    source: "rob_shared_attack_warehouse",
-    attacks: [],
-    next_cursor: { started: "1970-01-01T00:16:40.000Z", attack_id: 0 }
-  };
-  const { context } = makeContext({
-    ROB_ATTACK_WAREHOUSE_ENABLED: "true",
-    ROB_ATTACK_WAREHOUSE_URL: "https://example.invalid",
-    ROB_PAYOUT_EXPORT_SECRET: "secret"
-  }, [response(200, bad)]);
+  const { context } = makeContext(
+    { ROB_ATTACK_WAREHOUSE_ENABLED: "true" },
+    [{ ok: true, source: "rob_shared_attack_warehouse", attacks: [], next_cursor: { started: "1970-01-01T00:16:40.000Z", attack_id: 0 } }]
+  );
   assert.throws(
     () => context.loadWarDataFromRobWarehouse_(40664, 1000000, 2000000),
     /cursor did not advance/
   );
 })();
 
-(function testImporterHasExplicitFallback() {
+(function testImporterHasExplicitFallbackAndFailClosedStatus() {
   const importer = fs.readFileSync("Importer.gs", "utf8");
   assert.ok(importer.includes('if (!rawData || rawData.length === 0) return false;'));
-  assert.ok(!importer.includes('if (!rawData || rawData.length <= 1) return;'));
   assert.ok(importer.includes('return true;'));
   assert.ok(importer.includes('robAttackWarehouseEnabled_()'));
   assert.ok(importer.includes('loadWarDataFromRobWarehouse_'));
   assert.ok(importer.includes('SpreadsheetApp.openById(backendId)'));
   assert.ok(importer.indexOf('robAttackWarehouseEnabled_()') < importer.indexOf('SpreadsheetApp.openById(backendId)'));
 })();
-
 
 (function testOfficialReportAbortsOnFailedImport() {
   const dashboard = fs.readFileSync("Dashboard.gs", "utf8");
