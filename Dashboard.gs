@@ -285,10 +285,12 @@ function fetchOfficialReports() {
         for (let i = 1; i < rdData.length; i++) {
           let aFac = rdData[i][aFacCol] ? rdData[i][aFacCol].toString().replace(/,/g, "").trim() : "";
           if (aFac === rawConfigFactionId) {
-            let respect = parseFloat(rdData[i][respectCol]) || 0;
-            let cBonus = chainBonusCol >= 0 ? (parseFloat(rdData[i][chainBonusCol]) || 1) : 1;
-            if (cBonus > 1) {
-               totalBonusRespectToStrip += (respect - (respect / cBonus));
+            const respectParts = payoutRespectBreakdown_(
+              rdData[i][respectCol],
+              chainBonusCol >= 0 ? rdData[i][chainBonusCol] : 1
+            );
+            if (respectParts.chainBonus > 1) {
+              totalBonusRespectToStrip += respectParts.bonusRespect;
             }
           }
         }
@@ -519,22 +521,9 @@ function refreshDashboard() {
     let b6 = oChainSheet.getRange("B6").getValue();
 
     if (b3 !== "" && b3 !== "N/A" && b5 !== "") {
-      let displayRespect = parseFloat(b6) || 0;
-      let rdSheetForAdjust = ss.getSheetByName(SETTINGS.rdSheet || "RD");
-      if (rdSheetForAdjust && rdSheetForAdjust.getLastRow() > 1) {
-        let rdData = rdSheetForAdjust.getDataRange().getValues();
-        for (let r = 1; r < rdData.length; r++) {
-          let aFac = rdData[r][5] ? rdData[r][5].toString().replace(/,/g, "").trim() : "";
-          if (aFac === myFactionId) {
-            let respect = parseFloat(rdData[r][10]) || 0;
-            let cBonus = parseFloat(rdData[r][16]) || 1;
-            if (cBonus > 1) {
-              displayRespect -= (respect - (respect / cBonus));
-            }
-          }
-        }
-      }
-      if (displayRespect < 0) displayRespect = 0;
+      // B6 is already bonus-stripped when Official Chain Report is built.
+      // Do not subtract RD chain-bonus respect a second time here.
+      const displayRespect = Math.max(0, parseFloat(b6) || 0);
       dashSheet.getRange("C16").setNumberFormat("@").setValue(b3);
       dashSheet.getRange("C17").setNumberFormat("@").setValue(b4);
       dashSheet.getRange("C18").setValue(b5);
@@ -555,10 +544,8 @@ function refreshDashboard() {
       for (let i = 1; i < rdData.length; i++) {
         let tVal = rdData[i][2]; // Timestamp
         let aFac = cleanId(rdData[i][5]); 
-        let respect = parseFloat(rdData[i][10]) || 0;
-        let cBonus = parseFloat(rdData[i][16]) || 1;
-        
-        let adjRespect = respect / (cBonus > 1 ? cBonus : 1);
+        const respectParts = payoutRespectBreakdown_(rdData[i][10], rdData[i][16]);
+        const adjRespect = respectParts.baseRespect;
         if (aFac !== "" && aFac === myFactionId) {
           rdTotalAttacks++;
           rdTotalRespect += adjRespect;
