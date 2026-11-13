@@ -1,4 +1,199 @@
 // ==========================================
+// ROB SHARED ATTACK WAREHOUSE CLIENT
+// ==========================================
+function robPayoutExportConfig_(configSheet) {
+  const properties = PropertiesService.getScriptProperties();
+  const secret = String(properties.getProperty("ROB_PAYOUT_EXPORT_SECRET") || "").trim();
+  const baseUrl =
+    "https://chain-watch-web-production.up.railway.app/internal/payout-attacks";
+
+  const factionCell = (typeof SETTINGS !== "undefined" && SETTINGS.factionIdCell)
+    ? SETTINGS.factionIdCell : "B7";
+  const factionId = String(configSheet.getRange(factionCell).getValue() || "")
+    .replace(/,/g, "").trim();
+
+  if (!/^\d+$/.test(factionId)) {
+    throw new Error("Missing or invalid Faction ID in Config " + factionCell + ".");
+  }
+  if (!secret) {
+    throw new Error(
+      "Missing ROB_PAYOUT_EXPORT_SECRET in Apps Script Script Properties."
+    );
+  }
+  return { baseUrl: baseUrl, secret: secret, factionId: factionId };
+}
+
+
+function robWarehouseAttackToRdRow_(attack) {
+  if (!attack || attack.modifiers_complete !== true) {
+    const attackId = attack && attack.attack_id ? attack.attack_id : "unknown";
+    throw new Error(
+      "ROB attack " + attackId +
+      " has incomplete payout modifiers. Import stopped rather than guessing multipliers."
+    );
+  }
+
+  const rawRespect = attack.respect_gain;
+  if (
+    rawRespect === null || rawRespect === undefined || rawRespect === "" ||
+    !Number.isFinite(Number(rawRespect))
+  ) {
+    throw new Error(
+      "ROB attack " + (attack.attack_id || "unknown") +
+      " has an invalid respect_gain value."
+    );
+  }
+  const respectGain = Number(rawRespect);
+
+  const modifierNames = [
+    "fair_fight", "war_bonus", "retaliation", "group_attack",
+    "overseas", "chain_bonus", "warlord_bonus"
+  ];
+  const modifiers = {};
+  for (const name of modifierNames) {
+    const raw = attack[name];
+    if (raw === null || raw === undefined || raw === "" || !Number.isFinite(Number(raw))) {
+      throw new Error(
+        "ROB attack " + (attack.attack_id || "unknown") +
+        " has an invalid " + name + " payout modifier."
+      );
+    }
+    modifiers[name] = Number(raw);
+  }
+
+  const started = new Date(attack.started_at);
+  const ended = new Date(attack.ended_at);
+  if (isNaN(started.getTime()) || isNaN(ended.getTime())) {
+    throw new Error("ROB returned an attack with an invalid timestamp.");
+  }
+
+  return [
+    attack.attack_id,
+    started,
+    ended,
+    attack.attacker_id || "",
+    attack.attacker_name || "Unknown/Stealthed",
+    attack.attacker_faction_id || "",
+    attack.defender_id || "",
+    attack.defender_name || "Unknown/Stealthed",
+    attack.defender_faction_id || "",
+    attack.result || "",
+    respectGain,
+    modifiers.fair_fight,
+    modifiers.war_bonus,
+    modifiers.retaliation,
+    modifiers.group_attack,
+    modifiers.overseas,
+    modifiers.chain_bonus,
+    modifiers.warlord_bonus
+  ];
+}
+
+
+function fetchRobPayoutRows_(configSheet, startMs, endMs) {
+  const cfg = robPayoutExportConfig_(configSheet);
+  const fromSec = Math.floor(Number(startMs) / 1000);
+  const toSec = Math.ceil(Number(endMs) / 1000);
+  if (!Number.isFinite(fromSec) || !Number.isFinite(toSec) || toSec <= fromSec) {
+    throw new Error("Invalid payout attack time window.");
+  }
+
+  const rows = [];
+  let cursorStarted = "";
+  let cursorId = 0;
+  let priorCursor = "";
+  const maxPages = 40;
+
+  for (let page = 0; page < maxPages; page++) {
+    let url = cfg.baseUrl +
+      "?faction_id=" + encodeURIComponent(cfg.factionId) +
+      "&from=" + encodeURIComponent(String(fromSec)) +
+      "&to=" + encodeURIComponent(String(toSec)) +
+      "&limit=5000";
+
+    if (cursorStarted) {
+      url += "&cursor_started=" + encodeURIComponent(cursorStarted) +
+             "&cursor_id=" + encodeURIComponent(String(cursorId));
+    }
+
+    const response = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      headers: { Authorization: "Bearer " + cfg.secret }
+    });
+
+    const status = response.getResponseCode();
+    let payload;
+    try {
+      payload = JSON.parse(response.getContentText());
+    } catch (_e) {
+      throw new Error("ROB payout warehouse returned invalid JSON.");
+    }
+    if (status >= 400 || !payload || payload.ok !== true) {
+      const detail = payload && (payload.message || payload.error)
+        ? String(payload.message || payload.error) : ("HTTP " + status);
+      throw new Error("ROB payout warehouse request failed: " + detail);
+    }
+    if (String(payload.faction_id) !== cfg.factionId) {
+      throw new Error("ROB payout warehouse returned data for the wrong faction.");
+    }
+
+    if (!Array.isArray(payload.attacks)) {
+      throw new Error("ROB payout warehouse returned a malformed attacks page.");
+    }
+    const attacks = payload.attacks;
+    for (const attack of attacks) {
+      rows.push(robWarehouseAttackToRdRow_(attack));
+    }
+
+    const next = payload.next_cursor;
+    if (!next) return rows;
+
+    const nextStarted = String(next.started || "").trim();
+    const nextId = Number(next.attack_id || 0);
+    const nextKey = nextStarted + "|" + nextId;
+    if (!nextStarted || !Number.isFinite(nextId) || nextId <= 0 || nextKey === priorCursor) {
+      throw new Error("ROB payout warehouse returned an invalid/repeating pagination cursor.");
+    }
+    priorCursor = nextKey;
+    cursorStarted = nextStarted;
+    cursorId = nextId;
+  }
+
+  throw new Error(
+    "ROB payout warehouse exceeded the " + maxPages +
+    "-page safety limit. Narrow the payout time window before retrying."
+  );
+}
+
+
+function testRobPayoutWarehouseConnection() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
+  if (!configSheet) {
+    ui.alert("ROB payout warehouse test failed.\n\nMissing Config sheet.");
+    return;
+  }
+
+  const endMs = Date.now();
+  const startMs = endMs - (10 * 60 * 1000);
+  try {
+    const cfg = robPayoutExportConfig_(configSheet);
+    const rows = fetchRobPayoutRows_(configSheet, startMs, endMs);
+    ui.alert(
+      "ROB payout warehouse connection successful.\n\n" +
+      "Faction ID: " + cfg.factionId + "\n" +
+      "Validated attacks in the last 10 minutes: " + rows.length + "\n\n" +
+      "This test did not change the RD sheet."
+    );
+  } catch (e) {
+    console.error("ROB payout warehouse connection test failed: " + e.message);
+    ui.alert("ROB payout warehouse test failed.\n\n" + e.message);
+  }
+}
+
+
+// ==========================================
 // 1. MASTER IMPORTER (Timezone-Safe + Duplicate Shield)
 // ==========================================
 function importWarData() {
@@ -7,14 +202,12 @@ function importWarData() {
   const dashSheet = ss.getSheetByName(SETTINGS.dashboardSheet);
   let localRdSheet = ss.getSheetByName(SETTINGS.rdSheet);
 
-  if (!dashSheet) {
-    ss.toast("Please run 'Rebuild Dashboard' first.", "Error", 5);
+  if (!configSheet) {
+    ss.toast("Missing Config sheet.", "Error", 5);
     return;
   }
-
-  const backendId = configSheet.getRange(SETTINGS.backendIdCell).getValue().toString().trim();
-  if (!backendId) {
-    ss.toast("Missing Backend Sheet ID in Config B2!", "Error", 5);
+  if (!dashSheet) {
+    ss.toast("Please run 'Rebuild Dashboard' first.", "Error", 5);
     return;
   }
 
@@ -51,28 +244,25 @@ function importWarData() {
     eHour, eMin, eSec, 999 
   );
 
-  // 2. Connect to Backend Warehouse
-  ss.toast("Connecting to Data Warehouse...", "System", 3);
-  let backendSS;
+  // 2. Read the shared ROB attack warehouse (no direct Torn API call here).
+  ss.toast("Connecting to ROB Attack Warehouse...", "System", 3);
+  let rawData;
   try {
-    backendSS = SpreadsheetApp.openById(backendId);
-  } catch(e) {
-    ss.toast("Could not access Backend Sheet.", "Error", 5);
+    rawData = fetchRobPayoutRows_(configSheet, startUnix, endUnix);
+  } catch (e) {
+    console.error("ROB payout import failed: " + e.message);
+    SpreadsheetApp.getUi().alert(
+      "Payout attack import stopped.\n\n" + e.message
+    );
     return;
   }
-
-  const backendDataSheet = backendSS.getSheetByName("Data"); 
-  if (!backendDataSheet) return;
-
-  const rawData = backendDataSheet.getDataRange().getValues();
-  if (rawData.length <= 1) return;
 
   // 3. Filter the Data (With Duplicate Shield)
   const filteredData = [];
   const seenIds = new Set();
   let duplicatesBlocked = 0;
   
-  for (let i = 1; i < rawData.length; i++) {
+  for (let i = 0; i < rawData.length; i++) {
     let row = rawData[i];
     let attackId = row[0].toString().trim(); 
     
@@ -179,10 +369,19 @@ function runSniperAudit() {
   let etParts = (endTimeStr ? endTimeStr : "23:59:59").split(":");
   let endUnix = Date.UTC(ed.getUTCFullYear(), ed.getUTCMonth(), ed.getUTCDate(), parseInt(etParts[0])||23, parseInt(etParts[1])||59, parseInt(etParts[2])||59, 999);
 
-  // 3. Connect to Master Backend
-  const backendId = configSheet.getRange(SETTINGS.backendIdCell).getValue().toString().trim();
-  let backendSS = SpreadsheetApp.openById(backendId);
-  let masterData = backendSS.getSheetByName("Data").getDataRange().getValues();
+  // 3. Read the shared ROB warehouse, including one hour around the boundary.
+  let masterData;
+  try {
+    masterData = fetchRobPayoutRows_(
+      configSheet,
+      startUnix - 3600000,
+      endUnix + 3600000
+    );
+  } catch (e) {
+    console.error("ROB sniper audit failed: " + e.message);
+    ui.alert("Sniper Audit could not load ROB attack data.\n\n" + e.message);
+    return;
+  }
 
   // 4. Track exactly what happened
   let log = {
@@ -192,7 +391,7 @@ function runSniperAudit() {
     resultsBreakdown: {} // NEW: We will tally every exact word here
   };
 
-  for (let i = 1; i < masterData.length; i++) {
+  for (let i = 0; i < masterData.length; i++) {
     let row = masterData[i];
     let attackerId = row[3].toString().trim();
     let defenderId = row[6].toString().trim();
