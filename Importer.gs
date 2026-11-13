@@ -87,9 +87,10 @@ function importWarData(silentMode) {
     rawData = backendDataSheet.getDataRange().getValues();
   }
 
-  if (!rawData || rawData.length <= 1) return;
+  if (!rawData || rawData.length === 0) return;
 
-  // Keep the established RD column contract regardless of source.
+  // Keep the established RD column contract regardless of source. A successful
+  // header-only response is meaningful: it must clear stale RD rows below.
   const masterHeaders = rawData[0];
 
   // 3. Filter the Data (With Duplicate Shield)
