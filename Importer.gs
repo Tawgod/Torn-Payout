@@ -33,6 +33,18 @@ function robWarehouseAttackToRdRow_(attack) {
     );
   }
 
+  const rawRespect = attack.respect_gain;
+  if (
+    rawRespect === null || rawRespect === undefined || rawRespect === "" ||
+    !Number.isFinite(Number(rawRespect))
+  ) {
+    throw new Error(
+      "ROB attack " + (attack.attack_id || "unknown") +
+      " has an invalid respect_gain value."
+    );
+  }
+  const respectGain = Number(rawRespect);
+
   const modifierNames = [
     "fair_fight", "war_bonus", "retaliation", "group_attack",
     "overseas", "chain_bonus", "warlord_bonus"
@@ -66,7 +78,7 @@ function robWarehouseAttackToRdRow_(attack) {
     attack.defender_name || "Unknown/Stealthed",
     attack.defender_faction_id || "",
     attack.result || "",
-    Number(attack.respect_gain || 0),
+    respectGain,
     modifiers.fair_fight,
     modifiers.war_bonus,
     modifiers.retaliation,
