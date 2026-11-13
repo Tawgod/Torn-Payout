@@ -67,3 +67,30 @@ assertEqual(normalizeAttackChainCount(0), 0, "zero chain stays zero");
 assertEqual(normalizeAttackChainCount(5), 5, "positive chain preserved");
 
 console.log("Payout math regression tests passed.");
+
+
+// Verify production script consumers use the shared milestone helpers rather
+// than the old "any multiplier > 1" correction.
+const calculator = fs.readFileSync("Calculator.gs", "utf8");
+const dashboard = fs.readFileSync("Dashboard.gs", "utf8");
+
+if (!calculator.includes("chainMilestoneBonusRespect(e.respect, e.cBonus)")) {
+  throw new Error("Calculator must use shared milestone bonus detection");
+}
+if (calculator.includes("e.respect / e.cBonus")) {
+  throw new Error("Calculator still contains legacy chain-multiplier division");
+}
+if (!dashboard.includes("chainMilestoneBonusRespect(respect, cBonus)")) {
+  throw new Error("Dashboard must use shared milestone bonus detection");
+}
+if (!dashboard.includes("ordinaryChainRespect(respect, cBonus)")) {
+  throw new Error("Dashboard fallback must preserve ordinary chain scaling");
+}
+if (dashboard.includes("respect / (cBonus > 1")) {
+  throw new Error("Dashboard still contains legacy chain-multiplier division");
+}
+if (!dashboard.includes("isChainMilestoneBonus(cBonus)")) {
+  throw new Error("Bonus Chain Hits leaderboard must use milestone classification");
+}
+
+console.log("Payout script integration assertions passed.");
