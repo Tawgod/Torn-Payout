@@ -6,6 +6,7 @@ function onOpen() {
     .addSeparator()
     .addItem('4. Fetch Official Torn Reports', 'fetchOfficialReports') // <-- NEW: Pulls the API reports
     .addItem('5. Pull Raw Attack Data', 'importWarData') 
+    .addItem('🔌 Test ROB Payout Warehouse', 'testRobPayoutWarehouseConnection')
     .addItem('6. Generate Payout Tab', 'buildPayoutTab') 
     .addItem('7. Calculate Payout Metrics', 'runPayoutMath') 
     .addItem('8. Generate Final Payouts', 'buildFinalPayoutTab')
