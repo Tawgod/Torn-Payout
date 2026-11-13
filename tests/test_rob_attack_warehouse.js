@@ -165,12 +165,21 @@ function makeContext(props, responses) {
 
 (function testImporterHasExplicitFallback() {
   const importer = fs.readFileSync("Importer.gs", "utf8");
-  assert.ok(importer.includes('if (!rawData || rawData.length === 0) return;'));
+  assert.ok(importer.includes('if (!rawData || rawData.length === 0) return false;'));
   assert.ok(!importer.includes('if (!rawData || rawData.length <= 1) return;'));
+  assert.ok(importer.includes('return true;'));
   assert.ok(importer.includes('robAttackWarehouseEnabled_()'));
   assert.ok(importer.includes('loadWarDataFromRobWarehouse_'));
   assert.ok(importer.includes('SpreadsheetApp.openById(backendId)'));
   assert.ok(importer.indexOf('robAttackWarehouseEnabled_()') < importer.indexOf('SpreadsheetApp.openById(backendId)'));
+})();
+
+
+(function testOfficialReportAbortsOnFailedImport() {
+  const dashboard = fs.readFileSync("Dashboard.gs", "utf8");
+  assert.ok(dashboard.includes("const importSucceeded = importWarData(true);"));
+  assert.ok(dashboard.includes("if (importSucceeded === false)"));
+  assert.ok(dashboard.includes("Existing RD data was not used."));
 })();
 
 console.log("ROB attack warehouse importer contract tests passed.");
