@@ -1,0 +1,31 @@
+name: Payout math regression
+
+on:
+  pull_request:
+    types: [ready_for_review, synchronize, reopened]
+    paths:
+      - "PayoutMath.gs"
+      - "Calculator.gs"
+      - "Dashboard.gs"
+      - "tests/payout_math.test.js"
+      - ".github/workflows/payout-math.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  payout-math:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: node tests/payout_math.test.js
