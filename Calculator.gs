@@ -179,9 +179,11 @@ function runPayoutMath() {
         // Track Chain Saves timeline
         if (e.respect > 0 && !isNaN(e.time)) validHitsForSaves.push(e);
 
-        // Deduct Milestone Chain Bonuses to reveal True Base Respect
-        if (e.respect > 0 && e.cBonus > 1) {
-          stats[e.aId].res -= (e.respect - (e.respect / e.cBonus));
+        // Flat chain-milestone respect is tracked separately in Bonus Chain Hits.
+        // Ordinary chain scaling (1x..2x) remains part of normal earned respect.
+        const milestoneRespect = chainMilestoneBonusRespect(e.respect, e.cBonus);
+        if (milestoneRespect > 0) {
+          stats[e.aId].res -= milestoneRespect;
           if (stats[e.aId].res < 0) stats[e.aId].res = 0;
         }
 

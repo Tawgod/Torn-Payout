@@ -298,9 +298,7 @@ function fetchOfficialReports() {
           if (aFac === rawConfigFactionId) {
             let respect = parseFloat(rdData[i][10]) || 0;
             let cBonus = parseFloat(rdData[i][16]) || 1;
-            if (cBonus > 1) {
-               totalBonusRespectToStrip += (respect - (respect / cBonus));
-            }
+            totalBonusRespectToStrip += chainMilestoneBonusRespect(respect, cBonus);
           }
         }
         finalChainRespect -= totalBonusRespectToStrip;
@@ -357,8 +355,8 @@ function fetchOfficialReports() {
         let respect = parseFloat(rdData[i][10]) || 0; // Column K (Respect)
         let cBonus = parseFloat(rdData[i][16]) || 1; // Column Q (Chain Bonus)
         
-        // Strip the Chain Bonus mathematically 
-        let adjRespect = respect / (cBonus > 1 ? cBonus : 1);
+        // Keep ordinary chain scaling; exclude only flat milestone bonus respect.
+        let adjRespect = ordinaryChainRespect(respect, cBonus);
 
         if (aFac !== "" && aFac === rawConfigFactionId) {
           rdTotalAttacks++;
@@ -542,9 +540,7 @@ function refreshDashboard() {
           if (aFac === myFactionId) {
             let respect = parseFloat(rdData[r][10]) || 0;
             let cBonus = parseFloat(rdData[r][16]) || 1;
-            if (cBonus > 1) {
-              displayRespect -= (respect - (respect / cBonus));
-            }
+            displayRespect -= chainMilestoneBonusRespect(respect, cBonus);
           }
         }
       }
@@ -574,7 +570,7 @@ function refreshDashboard() {
         let respect = parseFloat(rdData[i][10]) || 0; // Column K (Respect)
         let cBonus = parseFloat(rdData[i][16]) || 1; // Column Q (Chain Bonus)
         
-        let adjRespect = respect / (cBonus > 1 ? cBonus : 1);
+        let adjRespect = ordinaryChainRespect(respect, cBonus);
 
         if (aFac !== "" && aFac === myFactionId) {
           rdTotalAttacks++;
@@ -680,7 +676,7 @@ function refreshDashboard() {
       let aName = rdBonusData[r][4] ? rdBonusData[r][4].toString().trim() : "Unknown";
       let cBonus = parseFloat(rdBonusData[r][16]) || 0;
       
-      if (aFac === myFactionId && cBonus >= 10) {
+      if (aFac === myFactionId && isChainMilestoneBonus(cBonus)) {
         bonusDataList.push({name: aName, val: cBonus});
       }
     }
