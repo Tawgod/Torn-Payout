@@ -145,6 +145,39 @@ function makeContext(props, responses) {
   );
 })();
 
+
+(function testSubMillisecondCursorAdvanceDoesNotUseTruncatedDateOrdering() {
+  const first = {
+    ok: true,
+    source: "rob_shared_attack_warehouse",
+    attacks: [],
+    next_cursor: { started: "2026-11-01T12:00:00.123456+00:00", attack_id: 200 }
+  };
+  const second = {
+    ok: true,
+    source: "rob_shared_attack_warehouse",
+    attacks: [],
+    next_cursor: { started: "2026-11-01T12:00:00.123457+00:00", attack_id: 100 }
+  };
+  const third = {
+    ok: true,
+    source: "rob_shared_attack_warehouse",
+    attacks: [],
+    next_cursor: null
+  };
+  const { context, calls } = makeContext({
+    ROB_ATTACK_WAREHOUSE_ENABLED: "true",
+    ROB_ATTACK_WAREHOUSE_URL: "https://example.invalid",
+    ROB_PAYOUT_EXPORT_SECRET: "secret"
+  }, [response(200, first), response(200, second), response(200, third)]);
+
+  const rows = context.loadWarDataFromRobWarehouse_(40664, 1793530000000, 1793540000000);
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(calls.length, 3);
+  assert.ok(calls[2].url.includes("cursor_started=2026-11-01T12%3A00%3A00.123457%2B00%3A00"));
+  assert.ok(calls[2].url.includes("cursor_id=100"));
+})();
+
 (function testNonAdvancingCursorFailsClosed() {
   const bad = {
     ok: true,
