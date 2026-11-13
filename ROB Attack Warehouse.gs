@@ -24,6 +24,12 @@ function robAttackWarehouseEnabled_() {
 
 function robAttackWarehouseRow_(attack) {
   attack = attack || {};
+  if (attack.modifiers_complete !== true) {
+    throw new Error(
+      "ROB attack warehouse returned attack " + String(attack.attack_id || "unknown") +
+      " without complete payout modifier data."
+    );
+  }
   // chain_value is the Torn chain counter. Payout Chain Bonus is the
   // respect multiplier chain_bonus; never substitute one for the other.
   return [
@@ -38,13 +44,13 @@ function robAttackWarehouseRow_(attack) {
     attack.defender_faction_id || "",
     attack.result || "",
     Number(attack.respect_gain || 0),
-    Number(attack.fair_fight || 1),
-    Number(attack.war_bonus || 1),
-    Number(attack.retaliation || 1),
-    Number(attack.group_attack || 1),
-    Number(attack.overseas || 1),
-    Number(attack.chain_bonus || 1),
-    Number(attack.warlord_bonus || 0),
+    Number(attack.fair_fight),
+    Number(attack.war_bonus),
+    Number(attack.retaliation),
+    Number(attack.group_attack),
+    Number(attack.overseas),
+    Number(attack.chain_bonus),
+    Number(attack.warlord_bonus),
     Number(attack.respect_loss || 0)
   ];
 }
@@ -71,7 +77,7 @@ function loadWarDataFromRobWarehouse_(factionId, startUnixMs, endUnixMs) {
 
   const rows = [ROB_ATTACK_WAREHOUSE_HEADERS.slice()];
   const seen = new Set();
-  let cursorStarted = startSec;
+  let cursorStarted = new Date(startSec * 1000).toISOString();
   let cursorId = 0;
   let pages = 0;
 
@@ -113,12 +119,17 @@ function loadWarDataFromRobWarehouse_(factionId, startUnixMs, endUnixMs) {
     }
 
     if (!body.next_cursor) return rows;
-    const nextStarted = Number(body.next_cursor.started);
+    const nextStarted = String(body.next_cursor.started || "").trim();
+    const nextStartedMs = Date.parse(nextStarted);
+    const cursorStartedMs = Date.parse(cursorStarted);
     const nextId = Number(body.next_cursor.attack_id);
-    if (!Number.isFinite(nextStarted) || !Number.isFinite(nextId)) {
+    if (!nextStarted || !Number.isFinite(nextStartedMs) || !Number.isFinite(nextId)) {
       throw new Error("ROB attack warehouse returned an invalid pagination cursor.");
     }
-    if (nextStarted < cursorStarted || (nextStarted === cursorStarted && nextId <= cursorId)) {
+    if (
+      nextStartedMs < cursorStartedMs ||
+      (nextStartedMs === cursorStartedMs && nextId <= cursorId)
+    ) {
       throw new Error("ROB attack warehouse pagination cursor did not advance.");
     }
     cursorStarted = nextStarted;
