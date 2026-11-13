@@ -1,11 +1,11 @@
 const SETTINGS = {
   configSheet: "Config",
   apiKeyCell: "B1",           
-  backendIdCell: "B2",        
-  archiveIdCell: "B3",        
+  backendIdCell: "B2",        // Legacy attack-data sheet ID; ROB warehouse importer no longer reads it.\n  archiveIdCell: "B3",        
   targetFactionCell: "B4",    
   warStartCell: "B5",         
   warIdCell: "B6",            
+  factionIdCell: "B7",       
   
   // NEW: Tell the script where your new dropdowns live on the Dashboard
   dashOutcomeCell: "C10", 
