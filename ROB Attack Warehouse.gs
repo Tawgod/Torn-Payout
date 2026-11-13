@@ -7,19 +7,17 @@ const ROB_ATTACK_WAREHOUSE_HEADERS = [
   "Respect Lost"
 ];
 
-function robAttackWarehouseConfig_() {
+function robAttackWarehouseEnabled_() {
   const props = PropertiesService.getScriptProperties();
-  const enabled = String(props.getProperty("ROB_ATTACK_WAREHOUSE_ENABLED") || "")
+  return String(props.getProperty("ROB_ATTACK_WAREHOUSE_ENABLED") || "")
     .trim().toLowerCase() === "true";
-  return {
-    enabled: enabled,
-    url: String(props.getProperty("ROB_ATTACK_WAREHOUSE_URL") || "").trim().replace(/\/+$/, ""),
-    secret: String(props.getProperty("ROB_PAYOUT_EXPORT_SECRET") || "").trim()
-  };
 }
 
-function robAttackWarehouseEnabled_() {
-  return robAttackWarehouseConfig_().enabled;
+function robFactionIdForArchiveKey_(factionKey) {
+  const key = String(factionKey || "").trim().toLowerCase();
+  if (key === "ironsides") return "40664";
+  if (key === "resolute") return "46442";
+  return "";
 }
 
 function robAttackWarehouseRow_(attack) {
@@ -56,17 +54,17 @@ function robAttackWarehouseRow_(attack) {
 }
 
 function loadWarDataFromRobWarehouse_(factionId, startUnixMs, endUnixMs) {
-  const cfg = robAttackWarehouseConfig_();
-  if (!cfg.enabled) return null;
-  if (!cfg.url || !cfg.secret) {
-    throw new Error(
-      "ROB attack warehouse is enabled but ROB_ATTACK_WAREHOUSE_URL or ROB_PAYOUT_EXPORT_SECRET is missing."
-    );
-  }
+  if (!robAttackWarehouseEnabled_()) return null;
 
   const faction = String(factionId || "").replace(/,/g, "").trim();
   if (!/^\d+$/.test(faction)) {
     throw new Error("A numeric faction ID is required for the ROB attack warehouse.");
+  }
+
+  const archiveCfg = getArchiveDatabaseConfig_();
+  const expectedFaction = robFactionIdForArchiveKey_(archiveCfg.factionKey);
+  if (!expectedFaction || expectedFaction !== faction) {
+    throw new Error("Payout faction ID does not match the configured Railway archive namespace.");
   }
 
   const startSec = Math.floor(Number(startUnixMs) / 1000);
@@ -97,20 +95,11 @@ function loadWarDataFromRobWarehouse_(factionId, startUnixMs, endUnixMs) {
       "cursor_started=" + encodeURIComponent(String(cursorStarted)),
       "cursor_id=" + encodeURIComponent(String(cursorId))
     ].join("&");
-    const response = UrlFetchApp.fetch(cfg.url + "/internal/payout-attacks?" + query, {
-      method: "get",
-      muteHttpExceptions: true,
-      headers: { Authorization: "Bearer " + cfg.secret }
-    });
-    const status = response.getResponseCode();
-    let body;
-    try {
-      body = JSON.parse(response.getContentText());
-    } catch (_e) {
-      throw new Error("ROB attack warehouse returned invalid JSON.");
-    }
-    if (status >= 400 || !body || body.ok !== true || !Array.isArray(body.attacks)) {
-      const detail = body && body.error ? String(body.error) : ("HTTP " + status);
+    const body = archiveApiRequest_(
+      "/api/rob-attack-warehouse?faction=" + encodeURIComponent(archiveCfg.factionKey) + "&" + query
+    );
+    if (!body || body.ok !== true || !Array.isArray(body.attacks)) {
+      const detail = body && body.error ? String(body.error) : "Invalid warehouse response";
       throw new Error("ROB attack warehouse request failed: " + detail);
     }
     if (body.source !== "rob_shared_attack_warehouse") {
