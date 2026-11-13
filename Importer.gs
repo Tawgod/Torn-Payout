@@ -166,6 +166,33 @@ function fetchRobPayoutRows_(configSheet, startMs, endMs) {
 }
 
 
+function testRobPayoutWarehouseConnection() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const configSheet = ss.getSheetByName(SETTINGS.configSheet);
+  if (!configSheet) {
+    ui.alert("ROB payout warehouse test failed.\n\nMissing Config sheet.");
+    return;
+  }
+
+  const endMs = Date.now();
+  const startMs = endMs - (10 * 60 * 1000);
+  try {
+    const cfg = robPayoutExportConfig_(configSheet);
+    const rows = fetchRobPayoutRows_(configSheet, startMs, endMs);
+    ui.alert(
+      "ROB payout warehouse connection successful.\n\n" +
+      "Faction ID: " + cfg.factionId + "\n" +
+      "Validated attacks in the last 10 minutes: " + rows.length + "\n\n" +
+      "This test did not change the RD sheet."
+    );
+  } catch (e) {
+    console.error("ROB payout warehouse connection test failed: " + e.message);
+    ui.alert("ROB payout warehouse test failed.\n\n" + e.message);
+  }
+}
+
+
 // ==========================================
 // 1. MASTER IMPORTER (Timezone-Safe + Duplicate Shield)
 // ==========================================
